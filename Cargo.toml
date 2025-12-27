@@ -1,0 +1,31 @@
+[package]
+name = "stems"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Audio
+cpal = "0.17"
+hound = "3.5"
+rtrb = "0.3"
+
+# MIDI
+midir = "0.10"
+midi-msg = "0.6"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Utilities
+chrono = "0.4"
+anyhow = "1.0"
+parking_lot = "0.12"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+clap = { version = "4.5", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
