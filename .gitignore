@@ -1,7 +1,2 @@
+.claude
 /target
-*.wav
-recordings/
-*.swp
-*.swo
-*~
-.DS_Store
