@@ -39,8 +39,8 @@ pub fn process_audio_input(
 
     // Process each frame
     for frame_idx in 0..num_frames {
-        let mut monitor_mix = 0.0f32;
-        let mut track_count = 0;
+        let mut monitor_left = 0.0f32;
+        let mut monitor_right = 0.0f32;
 
         // Process each track
         for track in tracks {
@@ -58,7 +58,7 @@ pub fn process_audio_input(
 
             // Apply level control
             let level = track.get_level();
-            let _pan = track.get_pan();
+            let pan = track.get_pan();
             let processed_sample = input_sample * level;
 
             // Update peak meter (simple peak detection)
@@ -79,22 +79,21 @@ pub fn process_audio_input(
             }
 
             // Mix into monitor output if monitoring is enabled
+            // Apply panning: -1.0 = full left, 0.0 = center, +1.0 = full right
             if track.is_monitoring() {
-                monitor_mix += processed_sample;
-                track_count += 1;
+                // Constant power panning
+                let pan_angle = (pan + 1.0) * 0.25 * std::f32::consts::PI; // Map -1..1 to 0..PI/2
+                let left_gain = pan_angle.cos();
+                let right_gain = pan_angle.sin();
+
+                monitor_left += processed_sample * left_gain;
+                monitor_right += processed_sample * right_gain;
             }
         }
 
-        // Send mixed output to monitor (stereo - same signal to both channels)
-        if track_count > 0 {
-            let mixed_sample = monitor_mix / track_count as f32;
-            let _ = monitor_producer.push(mixed_sample); // Left
-            let _ = monitor_producer.push(mixed_sample); // Right
-        } else {
-            // Silence if no tracks
-            let _ = monitor_producer.push(0.0);
-            let _ = monitor_producer.push(0.0);
-        }
+        // Send mixed output to monitor (stereo)
+        let _ = monitor_producer.push(monitor_left);
+        let _ = monitor_producer.push(monitor_right);
     }
 }
 
