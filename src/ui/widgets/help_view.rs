@@ -28,7 +28,7 @@ pub fn render_help_view(frame: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  Track Management", Style::default().add_modifier(Modifier::BOLD)),
         ]),
-        Line::from("    A                Toggle arm for all tracks"),
+        Line::from("    R                Toggle arm for all tracks"),
         Line::from("    M                Toggle monitoring for all tracks"),
         Line::from(""),
         Line::from(vec![

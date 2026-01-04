@@ -81,7 +81,7 @@ h/l, ←/→  = Navigate columns (Arm/Monitor/Level/Pan)
 
 Space     = Toggle arm/monitor or edit level/pan
 
-A         = Toggle arm for all tracks
+R         = Toggle arm for all tracks
 
 M         = Toggle monitoring for all tracks
 
