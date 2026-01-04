@@ -70,6 +70,75 @@ pub fn get_default_input_config(device: &Device) -> Result<SupportedStreamConfig
         .context("Failed to get default input config")
 }
 
+/// Get the input configuration with the maximum number of channels
+/// Falls back to default config if unable to query supported configs
+pub fn get_max_channels_input_config(device: &Device) -> Result<SupportedStreamConfig> {
+    // Try to get all supported configs and find the one with most channels
+    match device.supported_input_configs() {
+        Ok(configs) => {
+            let mut max_config: Option<SupportedStreamConfig> = None;
+            let mut max_channels: u16 = 0;
+
+            for config_range in configs {
+                let channels = config_range.channels();
+
+                if channels > max_channels {
+                    max_channels = channels;
+                    // Try to use 48000 Hz if supported, otherwise use min sample rate
+                    let desired_rate = 48000;
+                    let sample_rate = if config_range.min_sample_rate() <= desired_rate
+                        && desired_rate <= config_range.max_sample_rate() {
+                        desired_rate
+                    } else {
+                        config_range.min_sample_rate()
+                    };
+                    max_config = Some(config_range.with_sample_rate(sample_rate));
+                }
+            }
+
+            max_config.context("No supported input configurations found")
+        }
+        Err(_) => {
+            // Fall back to default config if we can't query supported configs
+            get_default_input_config(device)
+        }
+    }
+}
+
+/// Get the output configuration with the maximum number of channels
+/// Falls back to default config if unable to query supported configs
+pub fn get_max_channels_output_config(device: &Device) -> Result<SupportedStreamConfig> {
+    // Try to get all supported configs and find the one with most channels
+    match device.supported_output_configs() {
+        Ok(configs) => {
+            let mut max_config: Option<SupportedStreamConfig> = None;
+            let mut max_channels: u16 = 0;
+
+            for config_range in configs {
+                let channels = config_range.channels();
+                if channels > max_channels {
+                    max_channels = channels;
+                    // Try to use 48000 Hz if supported, otherwise use min sample rate
+                    let desired_rate = 48000;
+                    let sample_rate = if config_range.min_sample_rate() <= desired_rate
+                        && desired_rate <= config_range.max_sample_rate() {
+                        desired_rate
+                    } else {
+                        config_range.min_sample_rate()
+                    };
+                    max_config = Some(config_range.with_sample_rate(sample_rate));
+                }
+            }
+
+            max_config.context("No supported output configurations found")
+        }
+        Err(_) => {
+            device.default_output_config()
+                .context("Failed to get default output config")
+        }
+    }
+}
+
 /// Get device by name
 #[allow(dead_code)]
 pub fn get_device_by_name(name: &str) -> Result<Device> {

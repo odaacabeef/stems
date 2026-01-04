@@ -4,7 +4,7 @@ mod midi;
 mod types;
 mod ui;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use crossterm::{
     execute,
@@ -35,6 +35,10 @@ struct Args {
     /// MIDI device index or name (use --list-devices to see available devices)
     #[arg(short, long)]
     midi_device: Option<String>,
+
+    /// Monitor output channels (e.g., "1-2" or "17-18" for aggregate devices)
+    #[arg(long, value_name = "START-END")]
+    monitor_channels: Option<String>,
 }
 
 /// Resolve audio device string (index or name) to device index
@@ -77,6 +81,33 @@ fn resolve_midi_device(device_str: &str) -> Result<usize> {
     anyhow::bail!("MIDI device '{}' not found", device_str)
 }
 
+/// Parse monitor channels string (e.g., "17-18") into (start, end) tuple
+fn parse_monitor_channels(channels_str: &str) -> Result<(u16, u16)> {
+    let parts: Vec<&str> = channels_str.split('-').collect();
+    if parts.len() != 2 {
+        anyhow::bail!("Invalid monitor channels format '{}'. Expected format: START-END (e.g., '17-18')", channels_str);
+    }
+
+    let start = parts[0].parse::<u16>()
+        .with_context(|| format!("Invalid start channel '{}'", parts[0]))?;
+    let end = parts[1].parse::<u16>()
+        .with_context(|| format!("Invalid end channel '{}'", parts[1]))?;
+
+    if start < 1 {
+        anyhow::bail!("Start channel must be >= 1, got {}", start);
+    }
+
+    if end < start {
+        anyhow::bail!("End channel {} must be >= start channel {}", end, start);
+    }
+
+    if end - start + 1 != 2 {
+        anyhow::bail!("Monitor channels must be exactly 2 channels (stereo), got {} channels", end - start + 1);
+    }
+
+    Ok((start, end))
+}
+
 fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse();
@@ -102,6 +133,12 @@ fn main() -> Result<()> {
     } else {
         App::new(output_dir)?
     };
+
+    // Configure monitor output channels if specified
+    if let Some(ref channels_str) = args.monitor_channels {
+        let (start, end) = parse_monitor_channels(channels_str)?;
+        app.audio_engine.set_monitor_channels(start, end);
+    }
 
     // Start audio stream
     if let Some(warning) = app.audio_engine.start_stream()? {

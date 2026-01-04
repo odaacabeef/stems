@@ -119,14 +119,44 @@ pub fn create_audio_callback(
 
 /// Create the monitor output callback closure
 ///
-/// This reads from the monitor ring buffer and plays it through speakers
+/// This reads from the monitor ring buffer and plays it through specific output channels
+///
+/// # Arguments
+/// * `consumer` - Ring buffer consumer with stereo monitor audio
+/// * `total_channels` - Total number of output channels in the device
+/// * `monitor_start` - Start channel for monitoring (1-indexed, e.g., 17)
+/// * `monitor_end` - End channel for monitoring (1-indexed, e.g., 18)
 pub fn create_monitor_callback(
     mut consumer: rtrb::Consumer<f32>,
+    total_channels: usize,
+    monitor_start: usize,
+    monitor_end: usize,
 ) -> impl FnMut(&mut [f32], &cpal::OutputCallbackInfo) + Send + 'static {
+    // Convert 1-indexed channels to 0-indexed
+    let start_idx = monitor_start.saturating_sub(1);
+    let end_idx = monitor_end.saturating_sub(1);
+
     move |data: &mut [f32], _info: &cpal::OutputCallbackInfo| {
-        // Fill output buffer with samples from ring buffer
-        for sample in data.iter_mut() {
-            *sample = consumer.pop().unwrap_or(0.0);
+        // Calculate number of frames
+        let num_frames = data.len() / total_channels;
+
+        // Process each frame
+        for frame_idx in 0..num_frames {
+            let frame_start = frame_idx * total_channels;
+
+            // Fill all channels in this frame with silence
+            for ch in 0..total_channels {
+                data[frame_start + ch] = 0.0;
+            }
+
+            // Pop stereo samples from ring buffer and place in monitor channels
+            if start_idx < total_channels && end_idx < total_channels {
+                let left_sample = consumer.pop().unwrap_or(0.0);
+                let right_sample = consumer.pop().unwrap_or(0.0);
+
+                data[frame_start + start_idx] = left_sample;
+                data[frame_start + end_idx] = right_sample;
+            }
         }
     }
 }

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{Device, Stream, StreamConfig};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::audio::callback::{
     create_audio_callback, create_error_callback, create_monitor_callback, AudioCallbackState,
 };
-use crate::audio::device::{get_default_input_config, get_default_input_device};
+use crate::audio::device::{get_default_input_device, get_max_channels_input_config, get_max_channels_output_config};
 use crate::audio::track::Track;
 use crate::audio::writer::{generate_timestamp, FileWriter};
 use crate::types::{RING_BUFFER_SECONDS, SAMPLE_RATE};
@@ -41,13 +41,17 @@ pub struct AudioEngine {
 
     /// Output directory for recordings
     output_dir: PathBuf,
+
+    /// Monitor output channels (start, end) - 1-indexed
+    /// If None, defaults to channels 1-2
+    monitor_channels: Option<(u16, u16)>,
 }
 
 impl AudioEngine {
     /// Create a new audio engine with default device
     pub fn new(output_dir: PathBuf) -> Result<Self> {
         let device = get_default_input_device()?;
-        let supported_config = get_default_input_config(&device)?;
+        let supported_config = get_max_channels_input_config(&device)?;
 
         let config = StreamConfig {
             channels: supported_config.channels(),
@@ -73,13 +77,19 @@ impl AudioEngine {
             output_stream: None,
             file_writer: None,
             output_dir,
+            monitor_channels: None,
         })
+    }
+
+    /// Set monitor output channels (1-indexed, e.g., 17-18 for aggregate devices)
+    pub fn set_monitor_channels(&mut self, start: u16, end: u16) {
+        self.monitor_channels = Some((start, end));
     }
 
     /// Create audio engine with specific device
     #[allow(dead_code)]
     pub fn with_device(device: Device, output_dir: PathBuf) -> Result<Self> {
-        let supported_config = get_default_input_config(&device)?;
+        let supported_config = get_max_channels_input_config(&device)?;
 
         let config = StreamConfig {
             channels: supported_config.channels(),
@@ -105,6 +115,7 @@ impl AudioEngine {
             output_stream: None,
             file_writer: None,
             output_dir,
+            monitor_channels: None,
         })
     }
 
@@ -119,18 +130,14 @@ impl AudioEngine {
         let buffer_samples = SAMPLE_RATE as usize * RING_BUFFER_SECONDS * self.num_channels;
         let (producer, consumer) = rtrb::RingBuffer::new(buffer_samples);
 
-        // Get output device for monitoring first (need its sample rate for buffer sizing)
-        let output_device = cpal::default_host()
-            .default_output_device()
-            .context("No default output device available")?;
-
-        let output_config = output_device
-            .default_output_config()
-            .context("Failed to get default output config")?;
+        // Use the same device for output monitoring (ensures single clock domain)
+        // Query for maximum output channels to support aggregate devices
+        let output_config = get_max_channels_output_config(&self.device)?;
 
         let output_sample_rate = output_config.sample_rate();
+        let output_channels = output_config.channels();
 
-        // Create ring buffer for live monitoring
+        // Create ring buffer for live monitoring (always stereo internally)
         // Keep buffer small for low latency (~50ms)
         // Buffer size = (sample_rate * channels * duration_ms) / 1000
         let monitor_buffer_samples = (output_sample_rate as usize * 2 * 50) / 1000; // 50ms stereo buffer
@@ -161,13 +168,30 @@ impl AudioEngine {
             .build_input_stream(&self.config, audio_callback, error_callback, None)
             .context("Failed to build audio input stream")?;
 
-        // Build output audio stream for monitoring
-        let output_callback = create_monitor_callback(monitor_consumer);
+        // Build output audio stream for monitoring (using same device as input)
+        // Create explicit stream config with all output channels
+        let output_stream_config = StreamConfig {
+            channels: output_channels,
+            sample_rate: output_sample_rate,
+            buffer_size: cpal::BufferSize::Fixed(256),
+        };
+
+        // Determine monitor channel routing (default to channels 1-2)
+        let monitor_start = self.monitor_channels.map(|(s, _)| s).unwrap_or(1);
+        let monitor_end = self.monitor_channels.map(|(_, e)| e).unwrap_or(2);
+
+        let output_callback = create_monitor_callback(
+            monitor_consumer,
+            output_channels as usize,
+            monitor_start as usize,
+            monitor_end as usize,
+        );
         let output_error_callback = create_error_callback();
 
-        let output_stream = output_device
+        let output_stream = self
+            .device
             .build_output_stream(
-                &output_config.into(),
+                &output_stream_config,
                 output_callback,
                 output_error_callback,
                 None,
