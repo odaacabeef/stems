@@ -21,12 +21,12 @@ cargo run --release -- --list-devices
 Basic usage:
 ```sh
 # Single audio device
-cargo run --release -- --audio-device "ES-9" --midi-device mc-out-b
+cargo run --release -- --audio-device "ES-9" --midi-device mc-source-b
 
 # Aggregate device with monitor routing
 cargo run --release -- --audio-device "BlackHole + ES-9" \
                        --monitor-channels 17-18 \
-                       --midi-device mc-out-b
+                       --midi-device mc-source-b
 ```
 
 ## Usage
@@ -59,7 +59,7 @@ To record from software applications while monitoring through a physical interfa
    ```sh
    cargo run --release -- --audio-device "BlackHole + ES-9" \
                           --monitor-channels 17-18 \
-                          --midi-device mc-out-b
+                          --midi-device mc-source-b
    ```
 
 **Channel mapping:** For an aggregate with BlackHole (16ch) + ES-9 (16ch):

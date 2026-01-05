@@ -143,12 +143,12 @@ for each frame:
 
 ```bash
 # Single device (uses channels 1-2 for monitoring)
-stems --audio-device "ES-9" --midi-device mc-out-b
+stems --audio-device "ES-9" --midi-device mc-source-b
 
 # Aggregate device with monitor routing
 stems --audio-device "BlackHole + ES-9" \
       --monitor-channels 17-18 \
-      --midi-device mc-out-b
+      --midi-device mc-source-b
 ```
 
 ### Flags
@@ -178,7 +178,7 @@ stems --audio-device "BlackHole + ES-9" \
    ```bash
    stems --audio-device "BlackHole + ES-9" \
          --monitor-channels 17-18 \
-         --midi-device mc-out-b
+         --midi-device mc-source-b
    ```
 
 4. **Audio flow:**
