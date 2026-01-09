@@ -17,6 +17,9 @@ pub struct Track {
     /// Whether this track is being monitored (heard in output)
     pub monitoring: AtomicBool,
 
+    /// Whether this track is soloed
+    pub solo: AtomicBool,
+
     /// Track level (0.0 - 1.0)
     pub level: AtomicF32,
 
@@ -41,6 +44,7 @@ impl Track {
             name: format!("Track {}", id + 1),
             armed: AtomicBool::new(false),
             monitoring: AtomicBool::new(true), // Monitoring enabled by default
+            solo: AtomicBool::new(false),
             level: AtomicF32::new(1.0),
             pan: AtomicF32::new(0.0),
             input_channel,
@@ -67,6 +71,16 @@ impl Track {
     /// Set monitoring status
     pub fn set_monitoring(&self, monitoring: bool) {
         self.monitoring.store(monitoring, Ordering::Relaxed);
+    }
+
+    /// Get solo status (audio-thread safe)
+    pub fn is_solo(&self) -> bool {
+        self.solo.load(Ordering::Relaxed)
+    }
+
+    /// Set solo status
+    pub fn set_solo(&self, solo: bool) {
+        self.solo.store(solo, Ordering::Relaxed);
     }
 
     /// Get level (audio-thread safe)
@@ -140,6 +154,7 @@ impl Clone for Track {
             name: self.name.clone(),
             armed: AtomicBool::new(self.armed.load(Ordering::Relaxed)),
             monitoring: AtomicBool::new(self.monitoring.load(Ordering::Relaxed)),
+            solo: AtomicBool::new(self.solo.load(Ordering::Relaxed)),
             level: AtomicF32::new(self.level.load(Ordering::Relaxed)),
             pan: AtomicF32::new(self.pan.load(Ordering::Relaxed)),
             input_channel: self.input_channel,

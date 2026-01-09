@@ -22,7 +22,13 @@ use crate::ui::{handle_input, render_ui};
 
 /// stems - multi-track audio recorder
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(
+    version,
+    about = "Terminal-based multi-track audio recorder with MIDI clock sync",
+    long_about = "Terminal-based multi-track audio recorder with MIDI clock sync.\n\n\
+                  Records individual tracks (one per input channel) and optionally \
+                  the monitored stereo mix to a single file."
+)]
 struct Args {
     /// List available audio and MIDI devices
     #[arg(short, long)]

@@ -9,6 +9,7 @@ use crate::audio::callback::{
     create_audio_callback, create_error_callback, create_monitor_callback, AudioCallbackState,
 };
 use crate::audio::device::{get_default_input_device, get_max_channels_input_config, get_max_channels_output_config};
+use crate::audio::mix_writer::MixWriter;
 use crate::audio::track::Track;
 use crate::audio::writer::{generate_timestamp, FileWriter};
 use crate::types::{RING_BUFFER_SECONDS, SAMPLE_RATE};
@@ -45,6 +46,15 @@ pub struct AudioEngine {
     /// Monitor output channels (start, end) - 1-indexed
     /// If None, defaults to channels 1-2
     monitor_channels: Option<(u16, u16)>,
+
+    /// Mix recording armed state
+    mix_recording_armed: Arc<AtomicBool>,
+
+    /// Mix recording file writer
+    mix_writer: Option<MixWriter>,
+
+    /// Mix recording is active
+    mix_recording: Arc<AtomicBool>,
 }
 
 impl AudioEngine {
@@ -78,6 +88,9 @@ impl AudioEngine {
             file_writer: None,
             output_dir,
             monitor_channels: None,
+            mix_recording_armed: Arc::new(AtomicBool::new(false)),
+            mix_writer: None,
+            mix_recording: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -116,6 +129,9 @@ impl AudioEngine {
             file_writer: None,
             output_dir,
             monitor_channels: None,
+            mix_recording_armed: Arc::new(AtomicBool::new(false)),
+            mix_writer: None,
+            mix_recording: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -143,6 +159,10 @@ impl AudioEngine {
         let monitor_buffer_samples = (output_sample_rate as usize * 2 * 50) / 1000; // 50ms stereo buffer
         let (monitor_producer, monitor_consumer) = rtrb::RingBuffer::new(monitor_buffer_samples);
 
+        // Create ring buffer for mix recording (stereo f32 samples)
+        let mix_buffer_samples = SAMPLE_RATE as usize * RING_BUFFER_SECONDS * 2; // Stereo
+        let (mix_recording_producer, mix_recording_consumer) = rtrb::RingBuffer::new(mix_buffer_samples);
+
         // Create file writer
         let file_writer = FileWriter::new(
             consumer,
@@ -151,12 +171,22 @@ impl AudioEngine {
         );
         self.file_writer = Some(file_writer);
 
+        // Create WAV writer for mix recording
+        let mix_writer = MixWriter::new(
+            mix_recording_consumer,
+            self.output_dir.clone(),
+            SAMPLE_RATE,
+        );
+        self.mix_writer = Some(mix_writer);
+
         // Create audio callback state
         let callback_state = AudioCallbackState {
             tracks: self.tracks.clone(),
             recording: self.recording.clone(),
             producer,
             monitor_producer,
+            mix_recording_producer,
+            mix_recording_armed: self.mix_recording_armed.clone(),
         };
 
         // Build input audio stream
@@ -258,6 +288,14 @@ impl AudioEngine {
             file_writer.start(timestamp.clone(), armed_track_ids)?;
         }
 
+        // Start mix writer if mix recording is armed
+        if self.mix_recording_armed.load(Ordering::Relaxed) {
+            if let Some(mix_writer) = &mut self.mix_writer {
+                mix_writer.start(timestamp.clone())?;
+                self.mix_recording.store(true, Ordering::Relaxed);
+            }
+        }
+
         // Set recording flag (audio callback will start writing to ring buffer)
         self.recording.store(true, Ordering::Relaxed);
 
@@ -283,6 +321,14 @@ impl AudioEngine {
         // Stop file writer (this will drain the ring buffer and finalize files)
         if let Some(file_writer) = &mut self.file_writer {
             file_writer.stop()?;
+        }
+
+        // Stop mix writer if it was recording
+        if self.mix_recording.load(Ordering::Relaxed) {
+            if let Some(mix_writer) = &mut self.mix_writer {
+                mix_writer.stop()?;
+                self.mix_recording.store(false, Ordering::Relaxed);
+            }
         }
 
         // Clear recording status on tracks
@@ -316,6 +362,21 @@ impl AudioEngine {
     #[allow(dead_code)]
     pub fn sample_rate(&self) -> u32 {
         self.config.sample_rate
+    }
+
+    /// Check if mix recording is armed
+    pub fn is_mix_recording_armed(&self) -> bool {
+        self.mix_recording_armed.load(Ordering::Relaxed)
+    }
+
+    /// Set mix recording armed state
+    pub fn set_mix_recording_armed(&mut self, armed: bool) {
+        self.mix_recording_armed.store(armed, Ordering::Relaxed);
+    }
+
+    /// Check if mix is currently recording
+    pub fn is_mix_recording(&self) -> bool {
+        self.mix_recording.load(Ordering::Relaxed)
     }
 }
 

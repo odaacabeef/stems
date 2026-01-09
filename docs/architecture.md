@@ -6,7 +6,8 @@ Stems is a multi-track audio recorder that simultaneously records audio to disk
 and provides real-time monitoring. It supports multi-channel aggregate devices
 for routing audio from virtual loopback devices (like
 [BlackHole](https://github.com/ExistentialAudio/BlackHole)) to physical audio
-interfaces.
+interfaces. In addition to recording individual tracks, stems can also record
+the monitored stereo mix to a single file.
 
 This doc uses BlackHole 16ch and
 [ES-9](https://www.expert-sleepers.co.uk/es9.html) as an example, but the
@@ -27,23 +28,33 @@ graph TB
 
     MonitorBuffer["Monitor Ring Buffer<br/>━━━━━━━━━━━━━━━━<br/>Type: f32 (stereo)<br/>Size: 50ms buffer<br/>Contains: mixed audio"]
 
-    %% File Writer
+    MixRecordingBuffer["Mix Recording Ring Buffer<br/>━━━━━━━━━━━━━━━━<br/>Type: f32 (stereo)<br/>Size: SAMPLE_RATE × 5s × 2<br/>Contains: stereo mix samples"]
+
+    %% File Writers
     FileWriter["FileWriter Thread<br/>━━━━━━━━━━━━━━━━<br/>• Read from recording buffer<br/>• De-multiplex by track_id<br/>• Write per-track WAV files"]
+
+    MixWriter["MixWriter Thread<br/>━━━━━━━━━━━━━━━━<br/>• Read from mix recording buffer<br/>• Write stereo WAV file"]
 
     %% Output Callback
     OutputCallback["Output Callback<br/>(Real-time Audio Thread)<br/>━━━━━━━━━━━━━━━━<br/>• Read from monitor buffer<br/>• Route to specified channels<br/>• Fill other channels with silence"]
 
     %% Disk
-    Disk["Disk Storage<br/>━━━━━━━━━━━━━━━━<br/>Per-track WAV files<br/>Format: 32-bit Float WAV<br/>Sample Rate: 48000 Hz"]
+    TrackFiles["Track Files<br/>━━━━━━━━━━━━━━━━<br/>Per-track mono WAV files<br/>Format: 32-bit Float WAV<br/>Sample Rate: 48000 Hz"]
+
+    MixFile["Mix File<br/>━━━━━━━━━━━━━━━━<br/>mix-timestamp.wav<br/>Format: Stereo 32-bit Float WAV<br/>Sample Rate: 48000 Hz"]
 
     %% Connections
     AggregateDevice -->|"cpal input stream<br/>(32ch f32 samples)"| InputCallback
 
     InputCallback -->|"if recording &amp; armed"| RecordingBuffer
     InputCallback -->|"if monitoring enabled"| MonitorBuffer
+    InputCallback -->|"if recording &amp; mix armed"| MixRecordingBuffer
 
     RecordingBuffer -->|"non-blocking read"| FileWriter
-    FileWriter -->|"write"| Disk
+    FileWriter -->|"write"| TrackFiles
+
+    MixRecordingBuffer -->|"non-blocking read"| MixWriter
+    MixWriter -->|"write"| MixFile
 
     MonitorBuffer -->|"non-blocking read"| OutputCallback
     OutputCallback -->|"cpal output stream<br/>(32ch f32, routed)"| AggregateDevice
@@ -56,8 +67,8 @@ graph TB
 
     class AggregateDevice device
     class InputCallback,OutputCallback callback
-    class RecordingBuffer,MonitorBuffer buffer
-    class FileWriter,Disk storage
+    class RecordingBuffer,MonitorBuffer,MixRecordingBuffer buffer
+    class FileWriter,MixWriter,TrackFiles,MixFile storage
 ```
 
 ## Key Components
@@ -90,11 +101,12 @@ Stems works best with macOS **Aggregate Devices** that combine:
 **Processing per audio frame:**
 1. De-interleave input channels
 2. For each track:
-   - Apply level/gain control
+   - Apply level control
    - Update peak meter
    - If recording AND track armed → push to recording buffer
-   - If monitoring enabled → mix into monitor output
+   - If monitoring enabled → mix into monitor output (with level and panning applied)
 3. Push stereo mix to monitor buffer
+4. If recording AND mix armed → push stereo mix to mix recording buffer
 
 ### 3. Recording Ring Buffer
 
@@ -110,7 +122,15 @@ Stems works best with macOS **Aggregate Devices** that combine:
 - **Lock-free:** Non-blocking push/pop
 - **Contents:** Stereo mix of monitored tracks
 
-### 5. FileWriter Thread
+### 5. Mix Recording Ring Buffer
+
+- **Type:** `rtrb::RingBuffer<f32>`
+- **Size:** `SAMPLE_RATE × 5 seconds × 2 channels`
+- **Lock-free:** Non-blocking push/pop
+- **Contents:** Interleaved stereo mix samples with level and panning applied (same as monitor output)
+- **Purpose:** Records the monitored mix to a single stereo file
+
+### 6. FileWriter Thread
 
 - Runs in **separate non-realtime thread**
 - Reads from recording ring buffer
@@ -118,7 +138,15 @@ Stems works best with macOS **Aggregate Devices** that combine:
 - Writes per-track WAV files to disk
 - **Format:** 32-bit Float WAV @ input sample rate
 
-### 6. Monitor Output with Channel Routing
+### 7. MixWriter Thread
+
+- Runs in **separate non-realtime thread**
+- Reads from mix recording ring buffer
+- Writes stereo mix to single WAV file
+- **Format:** Stereo 32-bit Float WAV @ 48000 Hz
+- **Filename:** `mix-{timestamp}.wav`
+
+### 8. Monitor Output with Channel Routing
 
 The output callback routes the stereo monitor mix to specific output channels:
 
@@ -229,14 +257,17 @@ For aggregate devices, the **Clock Source** device (typically the physical inter
 - Audio engine: `src/audio/engine.rs`
 - Audio callbacks: `src/audio/callback.rs`
 - Device configuration: `src/audio/device.rs`
-- File writer: `src/audio/writer.rs`
+- Track file writer: `src/audio/writer.rs`
+- Mix file writer: `src/audio/mix_writer.rs`
 - CLI argument parsing: `src/main.rs`
 - Track management: `src/audio/track.rs`
 
 ## Notes
 
 - **Recording to disk** uses large buffer (10 seconds) and is not timing-critical
+- **Mix recording** uses 5-second buffer and records the same stereo mix sent to monitor output
 - **Monitor output** is real-time with small buffer (50ms) - sensitive to timing
 - The `--audio-device` flag applies to **both input and output** for single clock domain
 - Aggregate devices must have sub-devices enabled in Audio MIDI Setup
 - Virtual devices (like BlackHole) have no physical clock and sync to the Clock Source
+- Mix recording is optional and controlled via the UI checkbox below the track list

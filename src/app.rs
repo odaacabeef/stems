@@ -26,13 +26,14 @@ pub struct Message {
 pub enum Column {
     Arm,
     Monitor,
+    Solo,
     Level,
     Pan,
 }
 
 impl Column {
     pub fn all() -> &'static [Column] {
-        &[Column::Arm, Column::Monitor, Column::Level, Column::Pan]
+        &[Column::Arm, Column::Monitor, Column::Solo, Column::Level, Column::Pan]
     }
 }
 
@@ -52,6 +53,9 @@ pub struct App {
 
     /// Selected column
     pub selected_column: Column,
+
+    /// Whether the mix recording row is selected
+    pub selected_on_mix_row: bool,
 
     /// Whether we're in edit mode
     pub edit_mode: bool,
@@ -97,6 +101,7 @@ impl App {
             recording_state: RecordingState::Stopped,
             selected_track: 0,
             selected_column: Column::Arm,
+            selected_on_mix_row: false,
             edit_mode: false,
             midi_sync_status: MidiSyncStatus::NoDevice,
             tempo: None,
@@ -129,8 +134,15 @@ impl App {
                 _ => {}
             }
         } else {
-            // Navigate to previous track
-            if self.selected_track > 0 {
+            // Navigate to previous track or from mix row to last track
+            if self.selected_on_mix_row {
+                // Move from mix row back to last track
+                self.selected_on_mix_row = false;
+                let num_tracks = self.tracks().len();
+                if num_tracks > 0 {
+                    self.selected_track = num_tracks - 1;
+                }
+            } else if self.selected_track > 0 {
                 self.selected_track -= 1;
             }
         }
@@ -145,10 +157,19 @@ impl App {
                 _ => {}
             }
         } else {
-            // Navigate to next track
-            let num_tracks = self.tracks().len();
-            if self.selected_track < num_tracks - 1 {
-                self.selected_track += 1;
+            // Navigate to next track or to mix row
+            if self.selected_on_mix_row {
+                // Already at mix row, can't go further down
+            } else {
+                let num_tracks = self.tracks().len();
+                if self.selected_track < num_tracks - 1 {
+                    self.selected_track += 1;
+                } else {
+                    // At last track, move to mix row
+                    self.selected_on_mix_row = true;
+                    // Set column to Arm for mix row
+                    self.selected_column = Column::Arm;
+                }
             }
         }
     }
@@ -189,11 +210,71 @@ impl App {
         }
     }
 
+    /// Jump to first track
+    pub fn jump_to_first(&mut self) {
+        if !self.edit_mode {
+            self.selected_track = 0;
+            self.selected_on_mix_row = false;
+        }
+    }
+
+    /// Jump to last track (mix row)
+    pub fn jump_to_last(&mut self) {
+        if !self.edit_mode {
+            // Jump to mix recording row
+            self.selected_on_mix_row = true;
+            // Set column to Arm for mix row
+            self.selected_column = Column::Arm;
+        }
+    }
+
+    /// Jump up 5 tracks
+    pub fn jump_up_5(&mut self) {
+        if !self.edit_mode {
+            if self.selected_on_mix_row {
+                // Jump from mix row to 5 tracks before the end
+                self.selected_on_mix_row = false;
+                let num_tracks = self.tracks().len();
+                if num_tracks > 0 {
+                    self.selected_track = num_tracks.saturating_sub(6);
+                }
+            } else {
+                self.selected_track = self.selected_track.saturating_sub(5);
+            }
+        }
+    }
+
+    /// Jump down 5 tracks
+    pub fn jump_down_5(&mut self) {
+        if !self.edit_mode {
+            if self.selected_on_mix_row {
+                // Already at mix row
+            } else {
+                let num_tracks = self.tracks().len();
+                if num_tracks > 0 {
+                    let target = self.selected_track + 5;
+                    if target >= num_tracks - 1 {
+                        // Would go past last track, jump to mix row instead
+                        self.selected_on_mix_row = true;
+                        // Set column to Arm for mix row
+                        self.selected_column = Column::Arm;
+                    } else {
+                        self.selected_track = target;
+                    }
+                }
+            }
+        }
+    }
+
     /// Toggle edit mode or perform action
     pub fn activate(&mut self) {
         if self.edit_mode {
             // Exit edit mode
             self.edit_mode = false;
+        } else if self.selected_on_mix_row {
+            // Toggle mix recording armed state
+            let current = self.audio_engine.is_mix_recording_armed();
+            self.audio_engine.set_mix_recording_armed(!current);
         } else {
             // Enter edit mode or toggle arm/monitor
             match self.selected_column {
@@ -213,6 +294,12 @@ impl App {
                     let track = self.selected_track();
                     let current = track.is_monitoring();
                     track.set_monitoring(!current);
+                }
+                Column::Solo => {
+                    // Toggle solo immediately
+                    let track = self.selected_track();
+                    let current = track.is_solo();
+                    track.set_solo(!current);
                 }
                 _ => {
                     // Enter edit mode
@@ -248,6 +335,17 @@ impl App {
         // If any are monitoring, disable all; otherwise enable all
         for track in self.tracks().iter() {
             track.set_monitoring(!any_monitoring);
+        }
+    }
+
+    /// Toggle solo for all tracks
+    pub fn toggle_all_solo(&mut self) {
+        // Check if any track has solo enabled
+        let any_solo = self.tracks().iter().any(|track| track.is_solo());
+
+        // If any are soloed, disable all; otherwise enable all
+        for track in self.tracks().iter() {
+            track.set_solo(!any_solo);
         }
     }
 
@@ -380,6 +478,16 @@ impl App {
     /// Check if should quit
     pub fn should_quit(&self) -> bool {
         self.should_quit
+    }
+
+    /// Check if mix recording is armed
+    pub fn mix_recording_armed(&self) -> bool {
+        self.audio_engine.is_mix_recording_armed()
+    }
+
+    /// Check if mix is currently recording
+    pub fn mix_recording_is_recording(&self) -> bool {
+        self.audio_engine.is_mix_recording()
     }
 
     /// Toggle help view

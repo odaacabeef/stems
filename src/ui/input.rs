@@ -37,6 +37,20 @@ fn handle_key_event(app: &mut App, key: KeyEvent) {
             app.move_right();
         }
 
+        // Jump navigation
+        KeyCode::Char('g') => {
+            app.jump_to_first();
+        }
+        KeyCode::Char('G') => {
+            app.jump_to_last();
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.jump_up_5();
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.jump_down_5();
+        }
+
         // Space - activate/edit cell
         KeyCode::Char(' ') => {
             app.activate();
@@ -57,6 +71,11 @@ fn handle_key_event(app: &mut App, key: KeyEvent) {
         // Toggle monitoring for all tracks
         KeyCode::Char('M') => {
             app.toggle_all_monitoring();
+        }
+
+        // Toggle solo for all tracks
+        KeyCode::Char('S') => {
+            app.toggle_all_solo();
         }
 
         // Ctrl+C - quit
