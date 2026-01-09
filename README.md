@@ -64,6 +64,8 @@ R         = Toggle arm for all tracks
 
 M         = Toggle monitoring for all tracks
 
+S         = Toggle solo for all tracks
+
 g/G       = Jump to first track / mix recording row
 
 ?         = Toggle help
@@ -98,5 +100,6 @@ For detailed architecture information, see [docs/architecture.md](docs/architect
 
 - One track is created for each input channel of the selected device
 - Monitoring mixes all monitored tracks into stereo and routes to specified output channels
+- Solo mode: When any track has solo enabled, only soloed tracks are heard in the monitor output and included in the mix recording
 - MIDI clock-based recording waits for first clock pulse after MIDI Start message
 - Sample rate automatically selected at 48000 Hz if supported by device
