@@ -44,12 +44,35 @@ pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>> {
         let name = desc.unwrap().name().to_string();
         let is_default = Some(&name) == default_name.as_ref();
 
-        // Get supported config
-        let config = device.default_input_config().ok();
-        let (max_channels, sample_rate) = if let Some(cfg) = config {
-            (cfg.channels() as usize, cfg.sample_rate())
-        } else {
-            (0, 0)
+        // Get max channels config (same as what we use for recording)
+        let (max_channels, sample_rate) = match device.supported_input_configs() {
+            Ok(configs) => {
+                let mut max_ch = 0u16;
+                let mut max_sr = 48000u32;
+
+                for config_range in configs {
+                    let channels = config_range.channels();
+                    if channels > max_ch {
+                        max_ch = channels;
+                        // Prefer 48000 Hz if supported
+                        let desired_rate = 48000;
+                        max_sr = if config_range.min_sample_rate() <= desired_rate
+                            && desired_rate <= config_range.max_sample_rate() {
+                            desired_rate
+                        } else {
+                            config_range.min_sample_rate()
+                        };
+                    }
+                }
+                (max_ch as usize, max_sr)
+            }
+            Err(_) => {
+                // Fall back to default config if we can't query supported configs
+                match device.default_input_config() {
+                    Ok(cfg) => (cfg.channels() as usize, cfg.sample_rate()),
+                    Err(_) => (0, 0)
+                }
+            }
         };
 
         devices.push(AudioDeviceInfo {
