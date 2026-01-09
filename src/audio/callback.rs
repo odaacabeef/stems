@@ -16,6 +16,8 @@ pub struct AudioCallbackState {
     pub recording: Arc<AtomicBool>,
     pub producer: Producer<RecordedSample>,
     pub monitor_producer: Producer<f32>,
+    pub mix_recording_producer: Producer<f32>,
+    pub mix_recording_armed: Arc<AtomicBool>,
 }
 
 /// Process audio input in real-time
@@ -32,6 +34,8 @@ pub fn process_audio_input(
     recording: &AtomicBool,
     producer: &mut Producer<RecordedSample>,
     monitor_producer: &mut Producer<f32>,
+    mix_recording_producer: &mut Producer<f32>,
+    mix_recording_armed: &AtomicBool,
     num_input_channels: usize,
 ) {
     let num_frames = input_data.len() / num_input_channels;
@@ -105,6 +109,12 @@ pub fn process_audio_input(
         // Send mixed output to monitor (stereo)
         let _ = monitor_producer.push(monitor_left);
         let _ = monitor_producer.push(monitor_right);
+
+        // If recording and mix recording is armed, send to mix recording buffer
+        if is_recording && mix_recording_armed.load(Ordering::Relaxed) {
+            let _ = mix_recording_producer.push(monitor_left);
+            let _ = mix_recording_producer.push(monitor_right);
+        }
     }
 }
 
@@ -122,6 +132,8 @@ pub fn create_audio_callback(
             &state.recording,
             &mut state.producer,
             &mut state.monitor_producer,
+            &mut state.mix_recording_producer,
+            &state.mix_recording_armed,
             num_input_channels,
         );
     }
@@ -194,12 +206,17 @@ mod tests {
 
         let input_data = vec![0.5f32; 128]; // 128 samples, mono
 
+        let (mut mix_recording_producer, _mix_recording_consumer) = rtrb::RingBuffer::new(1024);
+        let mix_recording_armed = Arc::new(AtomicBool::new(false));
+
         process_audio_input(
             &input_data,
             &tracks,
             &recording,
             &mut producer,
             &mut monitor_producer,
+            &mut mix_recording_producer,
+            &mix_recording_armed,
             1, // mono
         );
 
@@ -219,12 +236,17 @@ mod tests {
 
         let input_data = vec![1.0f32; 16]; // 16 samples, mono
 
+        let (mut mix_recording_producer, _mix_recording_consumer) = rtrb::RingBuffer::new(1024);
+        let mix_recording_armed = Arc::new(AtomicBool::new(false));
+
         process_audio_input(
             &input_data,
             &tracks,
             &recording,
             &mut producer,
             &mut monitor_producer,
+            &mut mix_recording_producer,
+            &mix_recording_armed,
             1, // mono
         );
 
@@ -249,12 +271,17 @@ mod tests {
 
         let input_data = vec![0.8f32; 16]; // 16 samples at 0.8 amplitude
 
+        let (mut mix_recording_producer, _mix_recording_consumer) = rtrb::RingBuffer::new(1024);
+        let mix_recording_armed = Arc::new(AtomicBool::new(false));
+
         process_audio_input(
             &input_data,
             &tracks,
             &recording,
             &mut producer,
             &mut monitor_producer,
+            &mut mix_recording_producer,
+            &mix_recording_armed,
             1, // mono
         );
 
@@ -280,12 +307,17 @@ mod tests {
         // Left channel = 0.5, Right channel = 0.8
         let input_data = vec![0.5, 0.8, 0.5, 0.8, 0.5, 0.8, 0.5, 0.8];
 
+        let (mut mix_recording_producer, _mix_recording_consumer) = rtrb::RingBuffer::new(1024);
+        let mix_recording_armed = Arc::new(AtomicBool::new(false));
+
         process_audio_input(
             &input_data,
             &tracks,
             &recording,
             &mut producer,
             &mut monitor_producer,
+            &mut mix_recording_producer,
+            &mix_recording_armed,
             2, // stereo
         );
 

@@ -1,11 +1,13 @@
 use ratatui::{
     layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Cell, Row, Table},
+    text::Line,
+    widgets::{Cell, Paragraph, Row, Table},
     Frame,
 };
 use std::sync::Arc;
 
+use crate::app::App;
 use crate::audio::Track;
 use crate::app::Column;
 
@@ -177,4 +179,52 @@ fn create_meter_string(level: f32, width: usize) -> String {
     }
 
     meter
+}
+
+/// Render the mix recording row below the track list
+pub fn render_mix_recording_row(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+) {
+    let is_armed = app.mix_recording_armed();
+    let is_recording = app.mix_recording_is_recording();
+    let is_selected = app.selected_on_mix_row;
+    let is_arm_column_selected = is_selected && app.selected_column == Column::Arm;
+
+    // Format arm status similar to track rows
+    let arm_status = if is_recording {
+        "[●]"
+    } else if is_armed {
+        "[R]"
+    } else {
+        "[ ]"
+    };
+
+    // Determine color based on state
+    let arm_color = if is_recording || is_armed {
+        Color::Red
+    } else {
+        Color::Gray
+    };
+
+    // Apply selection styling only to the arm checkbox when selected
+    let arm_style = if is_arm_column_selected {
+        Style::default()
+            .bg(Color::DarkGray)
+            .fg(arm_color)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(arm_color)
+    };
+
+    // Create the paragraph with arm status colored and selectable
+    let line = Line::from(vec![
+        ratatui::text::Span::raw("       "),
+        ratatui::text::Span::styled(arm_status, arm_style),
+        ratatui::text::Span::raw(" record monitored mix"),
+    ]);
+
+    let paragraph = Paragraph::new(line);
+    frame.render_widget(paragraph, area);
 }
