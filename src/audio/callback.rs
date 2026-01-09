@@ -37,6 +37,9 @@ pub fn process_audio_input(
     let num_frames = input_data.len() / num_input_channels;
     let is_recording = recording.load(Ordering::Relaxed);
 
+    // Check if any track has solo enabled (once per buffer for performance)
+    let any_solo = tracks.iter().any(|t| t.is_solo());
+
     // Process each frame
     for frame_idx in 0..num_frames {
         let mut monitor_left = 0.0f32;
@@ -79,8 +82,16 @@ pub fn process_audio_input(
             }
 
             // Mix into monitor output if monitoring is enabled
-            // Apply panning: -1.0 = full left, 0.0 = center, +1.0 = full right
-            if track.is_monitoring() {
+            // Solo logic: if any track is soloed, only monitor soloed tracks
+            // Otherwise, monitor according to monitoring flag
+            let should_monitor = if any_solo {
+                track.is_solo()
+            } else {
+                track.is_monitoring()
+            };
+
+            if should_monitor {
+                // Apply panning: -1.0 = full left, 0.0 = center, +1.0 = full right
                 // Constant power panning
                 let pan_angle = (pan + 1.0) * 0.25 * std::f32::consts::PI; // Map -1..1 to 0..PI/2
                 let left_gain = pan_angle.cos();

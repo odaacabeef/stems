@@ -46,6 +46,13 @@ pub fn render_track_list(
                 "[ ]"
             };
 
+            // Solo status
+            let solo_status = if track.is_solo() {
+                "[S]"
+            } else {
+                "[ ]"
+            };
+
             // Level
             let level_pct = (track.get_level() * 100.0) as u8;
             let level_str = format!("{:3}%", level_pct);
@@ -111,6 +118,13 @@ pub fn render_track_list(
                         Style::default().fg(if track.is_monitoring() { Color::Green } else { Color::Gray })
                     }
                 ),
+                Cell::from(solo_status).style(
+                    if is_selected && selected_column == Column::Solo {
+                        cell_style(Column::Solo).fg(if track.is_solo() { Color::Yellow } else { Color::Gray })
+                    } else {
+                        Style::default().fg(if track.is_solo() { Color::Yellow } else { Color::Gray })
+                    }
+                ),
                 Cell::from(level_str).style(cell_style(Column::Level)),
                 Cell::from(pan_str).style(cell_style(Column::Pan)),
                 Cell::from(meter_str),
@@ -126,6 +140,7 @@ pub fn render_track_list(
             Constraint::Length(3),  // Track
             Constraint::Length(3),  // Arm
             Constraint::Length(3),  // Monitor
+            Constraint::Length(3),  // Solo
             Constraint::Length(4),  // Level
             Constraint::Length(3),  // Pan
             Constraint::Min(20),    // Meter

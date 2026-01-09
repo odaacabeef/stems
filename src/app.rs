@@ -26,13 +26,14 @@ pub struct Message {
 pub enum Column {
     Arm,
     Monitor,
+    Solo,
     Level,
     Pan,
 }
 
 impl Column {
     pub fn all() -> &'static [Column] {
-        &[Column::Arm, Column::Monitor, Column::Level, Column::Pan]
+        &[Column::Arm, Column::Monitor, Column::Solo, Column::Level, Column::Pan]
     }
 }
 
@@ -189,6 +190,40 @@ impl App {
         }
     }
 
+    /// Jump to first track
+    pub fn jump_to_first(&mut self) {
+        if !self.edit_mode {
+            self.selected_track = 0;
+        }
+    }
+
+    /// Jump to last track
+    pub fn jump_to_last(&mut self) {
+        if !self.edit_mode {
+            let num_tracks = self.tracks().len();
+            if num_tracks > 0 {
+                self.selected_track = num_tracks - 1;
+            }
+        }
+    }
+
+    /// Jump up 5 tracks
+    pub fn jump_up_5(&mut self) {
+        if !self.edit_mode {
+            self.selected_track = self.selected_track.saturating_sub(5);
+        }
+    }
+
+    /// Jump down 5 tracks
+    pub fn jump_down_5(&mut self) {
+        if !self.edit_mode {
+            let num_tracks = self.tracks().len();
+            if num_tracks > 0 {
+                self.selected_track = (self.selected_track + 5).min(num_tracks - 1);
+            }
+        }
+    }
+
     /// Toggle edit mode or perform action
     pub fn activate(&mut self) {
         if self.edit_mode {
@@ -213,6 +248,12 @@ impl App {
                     let track = self.selected_track();
                     let current = track.is_monitoring();
                     track.set_monitoring(!current);
+                }
+                Column::Solo => {
+                    // Toggle solo immediately
+                    let track = self.selected_track();
+                    let current = track.is_solo();
+                    track.set_solo(!current);
                 }
                 _ => {
                     // Enter edit mode
@@ -248,6 +289,17 @@ impl App {
         // If any are monitoring, disable all; otherwise enable all
         for track in self.tracks().iter() {
             track.set_monitoring(!any_monitoring);
+        }
+    }
+
+    /// Toggle solo for all tracks
+    pub fn toggle_all_solo(&mut self) {
+        // Check if any track has solo enabled
+        let any_solo = self.tracks().iter().any(|track| track.is_solo());
+
+        // If any are soloed, disable all; otherwise enable all
+        for track in self.tracks().iter() {
+            track.set_solo(!any_solo);
         }
     }
 
