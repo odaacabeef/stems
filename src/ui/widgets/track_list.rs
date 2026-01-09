@@ -75,7 +75,7 @@ pub fn render_track_list(
             let arm_color = if track.is_recording() {
                 Color::Red
             } else if track.is_armed() {
-                Color::Yellow
+                Color::Red
             } else {
                 Color::Gray
             };
@@ -120,9 +120,9 @@ pub fn render_track_list(
                 ),
                 Cell::from(solo_status).style(
                     if is_selected && selected_column == Column::Solo {
-                        cell_style(Column::Solo).fg(if track.is_solo() { Color::Yellow } else { Color::Gray })
+                        cell_style(Column::Solo).fg(if track.is_solo() { Color::Cyan } else { Color::Gray })
                     } else {
-                        Style::default().fg(if track.is_solo() { Color::Yellow } else { Color::Gray })
+                        Style::default().fg(if track.is_solo() { Color::Cyan } else { Color::Gray })
                     }
                 ),
                 Cell::from(level_str).style(cell_style(Column::Level)),
