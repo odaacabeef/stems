@@ -22,30 +22,73 @@ and arrangement.
 `make build` or `make install`.
 
 ```sh
-# Command help
-stems --help
-
 # List available devices
-stems --list
+stems --list-devices
 
-# Single audio device
-stems --audio-device ES-9 --midi-device mc-source-b
+# Run with default config (stems.yaml in current directory)
+stems
 
-# Aggregate device with monitor routing
-stems --audio-device "BlackHole + ES-9" \
-      --monitor-channels 17-18 \
-      --midi-device mc-source-b
+# Use a specific config file
+stems --config my-setup.yaml
+```
+
+### Configuration
+
+stems uses a YAML configuration file for device and track settings. By default,
+it looks for `stems.yaml` in the current directory.
+
+Create a `stems.yaml` file:
+
+```yaml
+devices:
+  audio: "BlackHole 16ch + ES-9"  # Device name or index
+  monitorch: "17-18"               # Monitor output channels (1-indexed)
+  midiin: "mc-source-b"           # MIDI input device name or index
+
+tracks:
+  1:                               # Track number (1-based)
+    arm: false
+    monitor: true
+    solo: false
+    level: 1.0                     # 0.0 - 1.0
+    pan: 0.0                       # -1.0 (left) to 1.0 (right)
+  2:
+    monitor: true
+    level: 0.9
+    pan: 0.5
+  10:
+    monitor: true
 ```
 
 ### Command Line Flags
 
-- `--audio-device <name>` - Audio device for both input and output (ensures single clock domain)
-- `--monitor-channels <START-END>` - Output channels for monitoring (e.g., `1-2`, `17-18`)
-  - Defaults to `1-2` if not specified
+- `--list-devices` - Show all available audio and MIDI devices
+- `--config <path>` - Specify configuration file (default: `stems.yaml`)
+
+### Device Configuration
+
+- **audio** - Device name or index for both input and output (ensures single clock domain)
+  - Use device index (e.g., `"0"`) or name substring (e.g., `"ES-9"`)
+  - Omit to use system default device
+- **monitorch** - Output channels for monitoring (e.g., `"1-2"`, `"17-18"`)
   - Must be exactly 2 channels (stereo)
   - Channel numbers are 1-indexed
-- `--midi-device <name>` - MIDI device for transport control
-- `--list-devices` - Show all available audio and MIDI devices
+  - Defaults to `1-2` if not specified
+- **midiin** - MIDI device name or index for transport control
+  - Use device index or name substring
+  - Omit to use first available MIDI device (if any)
+
+### Track Configuration
+
+Configure individual tracks by track number (1-based, matching the UI):
+
+- **arm** - Whether track is armed for recording (boolean)
+- **monitor** - Whether track is monitored (heard in output) (boolean)
+- **solo** - Whether track is soloed (boolean)
+- **level** - Track level, 0.0 to 1.0 (float)
+- **pan** - Pan position, -1.0 (left) to 1.0 (right) (float)
+
+Only specified tracks are configured; others use defaults (all false except level=1.0, pan=0.0).
 
 ## Interface
 

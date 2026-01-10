@@ -1,5 +1,6 @@
 mod app;
 mod audio;
+mod config;
 mod midi;
 mod types;
 mod ui;
@@ -13,9 +14,11 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::env;
 use std::io;
+use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
 use crate::app::App;
+use crate::config::Config;
 use crate::midi::MidiCommand;
 use crate::types::RecordingState;
 use crate::ui::{handle_input, render_ui};
@@ -27,24 +30,18 @@ use crate::ui::{handle_input, render_ui};
     about = "Terminal-based multi-track audio recorder with MIDI clock sync",
     long_about = "Terminal-based multi-track audio recorder with MIDI clock sync.\n\n\
                   Records individual tracks (one per input channel) and optionally \
-                  the monitored stereo mix to a single file."
+                  the monitored stereo mix to a single file.\n\n\
+                  Configuration is loaded from stems.yaml by default, or use --config \
+                  to specify a different file."
 )]
 struct Args {
     /// List available audio and MIDI devices
     #[arg(short, long)]
     list_devices: bool,
 
-    /// Audio device index or name (use --list-devices to see available devices)
-    #[arg(short, long)]
-    audio_device: Option<String>,
-
-    /// MIDI device index or name (use --list-devices to see available devices)
-    #[arg(short, long)]
-    midi_device: Option<String>,
-
-    /// Monitor output channels (e.g., "1-2" or "17-18" for aggregate devices)
-    #[arg(long, value_name = "START-END")]
-    monitor_channels: Option<String>,
+    /// Path to configuration file
+    #[arg(short, long, value_name = "PATH", default_value = "stems.yaml")]
+    config: String,
 }
 
 /// Resolve audio device string (index or name) to device index
@@ -114,6 +111,68 @@ fn parse_monitor_channels(channels_str: &str) -> Result<(u16, u16)> {
     Ok((start, end))
 }
 
+/// Load configuration from file or use defaults
+fn load_config(config_path: &str) -> Result<Config> {
+    let path = Path::new(config_path);
+
+    // If explicit config path provided and file doesn't exist, error
+    if config_path != "stems.yaml" && !path.exists() {
+        anyhow::bail!("Config file not found: {}", config_path);
+    }
+
+    // If default path and file doesn't exist, use defaults
+    if config_path == "stems.yaml" && !path.exists() {
+        return Ok(Config::default());
+    }
+
+    // Load and parse config file
+    Config::from_file(path)
+}
+
+/// Apply track configuration from config file to audio engine tracks
+fn apply_track_config(audio_engine: &audio::AudioEngine, config: &Config) -> Result<()> {
+    let tracks = audio_engine.tracks();
+
+    for (track_num, track_config) in &config.tracks {
+        // Convert 1-based track number to 0-based index
+        let track_index = track_num.saturating_sub(1);
+
+        // Validate track exists
+        if track_index >= tracks.len() {
+            anyhow::bail!(
+                "Track {} does not exist (device has {} channels)",
+                track_num,
+                tracks.len()
+            );
+        }
+
+        let track = &tracks[track_index];
+
+        // Apply configuration values
+        if let Some(arm) = track_config.arm {
+            track.set_armed(arm);
+        }
+
+        if let Some(monitor) = track_config.monitor {
+            track.set_monitoring(monitor);
+        }
+
+        if let Some(solo) = track_config.solo {
+            track.set_solo(solo);
+        }
+
+        if let Some(level) = track_config.level {
+            track.set_level(level);
+        }
+
+        if let Some(pan) = track_config.pan {
+            track.set_pan(pan);
+        }
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse();
@@ -124,12 +183,15 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Load configuration
+    let config = load_config(&args.config)?;
+
     // Get output directory from current directory
     let output_dir = env::current_dir()?;
 
-    // Create application with specific audio device if specified
-    let mut app = if let Some(device_str) = args.audio_device {
-        let device_index = resolve_audio_device(&device_str)?;
+    // Create application with specific audio device if specified in config
+    let mut app = if let Some(ref device_str) = config.devices.audio {
+        let device_index = resolve_audio_device(device_str)?;
         let device = audio::device::get_device_by_index(device_index)?;
 
         let mut app = App::new(output_dir.clone())?;
@@ -140,47 +202,39 @@ fn main() -> Result<()> {
         App::new(output_dir)?
     };
 
-    // Configure monitor output channels if specified
-    if let Some(ref channels_str) = args.monitor_channels {
+    // Configure monitor output channels if specified in config
+    if let Some(ref channels_str) = config.devices.monitorch {
         let (start, end) = parse_monitor_channels(channels_str)?;
         app.audio_engine.set_monitor_channels(start, end);
     }
+
+    // Apply track configurations from config file
+    apply_track_config(&app.audio_engine, &config)?;
 
     // Start audio stream
     if let Some(warning) = app.audio_engine.start_stream()? {
         app.show_warning(warning);
     }
 
-    // Try to connect to MIDI device
-
-    let midi_index_result = if let Some(ref device_str) = args.midi_device {
-        Some(resolve_midi_device(device_str))
-    } else {
-        None
-    };
-
-    let midi_rx = match midi::MidiHandler::list_ports() {
-        Ok(ports) => {
-            if ports.is_empty() {
+    // Connect to MIDI device if specified in config
+    let midi_rx = if let Some(ref device_str) = config.devices.midiin {
+        let midi_index = resolve_midi_device(device_str)?;
+        match app.midi_handler.connect(midi_index) {
+            Ok(rx) => Some(rx),
+            Err(e) => {
+                app.show_error(format!("Failed to connect to MIDI device: {}", e));
                 None
-            } else {
-                // Determine MIDI device index
-                let midi_index = if let Some(result) = midi_index_result {
-                    match result {
-                        Ok(index) => index,
-                        Err(_) => 0, // Fall back to default
-                    }
-                } else {
-                    0
-                };
-
-                match app.midi_handler.connect(midi_index) {
-                    Ok(rx) => Some(rx),
-                    Err(_) => None,
-                }
             }
         }
-        Err(_) => None,
+    } else {
+        // Try default MIDI device (index 0) if available
+        match midi::MidiHandler::list_ports() {
+            Ok(ports) if !ports.is_empty() => match app.midi_handler.connect(0) {
+                Ok(rx) => Some(rx),
+                Err(_) => None,
+            },
+            _ => None,
+        }
     };
 
     // Set up terminal
@@ -248,13 +302,25 @@ fn list_all_devices() -> Result<()> {
     }
 
     println!();
-    println!("Use --audio-device <index or name> to select an audio device");
-    println!("Use --midi-device <index or name> to select a MIDI device");
+    println!("Configuration:");
+    println!("  Create a stems.yaml file to configure devices and tracks");
+    println!("  Use --config <path> to specify a different config file");
     println!();
-    println!("Examples:");
-    println!("  stems --audio-device 0");
-    println!("  stems --audio-device \"iPhone\"");
-    println!("  stems --midi-device \"beefdown-sync\"");
+    println!("Example stems.yaml:");
+    println!("  devices:");
+    println!("    audio: \"BlackHole 16ch + ES-9\"");
+    println!("    monitorch: \"17-18\"");
+    println!("    midiin: \"mc-source-b\"");
+    println!();
+    println!("  tracks:");
+    println!("    1:");
+    println!("      arm: false");
+    println!("      monitor: true");
+    println!("      level: 1.0");
+    println!("      pan: 0.0");
+    println!("    2:");
+    println!("      monitor: true");
+    println!("      level: 0.9");
 
     Ok(())
 }
