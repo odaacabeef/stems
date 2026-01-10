@@ -43,7 +43,7 @@ impl Track {
             id,
             name: format!("Track {}", id + 1),
             armed: AtomicBool::new(false),
-            monitoring: AtomicBool::new(true), // Monitoring enabled by default
+            monitoring: AtomicBool::new(false), // Monitoring disabled by default
             solo: AtomicBool::new(false),
             level: AtomicF32::new(1.0),
             pan: AtomicF32::new(0.0),
