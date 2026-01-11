@@ -24,7 +24,6 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),  // Top padding
                 Constraint::Length(1),  // Status bar
                 Constraint::Length(1),  // Line break
                 Constraint::Length(3),  // Message bar
@@ -35,7 +34,6 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),  // Top padding
                 Constraint::Length(1),  // Status bar
                 Constraint::Length(1),  // Line break
                 Constraint::Min(1),     // Track list
@@ -43,11 +41,11 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
             .split(frame.area())
     };
 
-    // Render status bar (skip chunk[0] which is top padding)
+    // Render status bar
     let duration = app.recording_duration_str();
     render_status_bar(
         frame,
-        chunks[1],
+        chunks[0],
         app.recording_state,
         app.tempo,
         &duration,
@@ -70,11 +68,11 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
                 )
                 .block(Block::default().borders(Borders::ALL));
 
-            frame.render_widget(message_widget, chunks[3]);
+            frame.render_widget(message_widget, chunks[2]);
         }
 
         // Split track list area vertically for track table, blank line, mix row, and remaining space
-        let track_area = chunks[4];
+        let track_area = chunks[3];
         let num_tracks = app.tracks().len() as u16;
         let track_area_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -106,7 +104,7 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
         render_mix_recording_row(frame, track_area_chunks[2], app);
     } else {
         // Split track list area vertically for track table, blank line, mix row, and remaining space
-        let track_area = chunks[3];
+        let track_area = chunks[2];
         let num_tracks = app.tracks().len() as u16;
         let track_area_chunks = Layout::default()
             .direction(Direction::Vertical)
