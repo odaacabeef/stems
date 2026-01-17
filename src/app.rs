@@ -57,6 +57,12 @@ pub struct App {
     /// Whether the mix recording row is selected
     pub selected_on_mix_row: bool,
 
+    /// Selected playback track index
+    pub selected_playback_track: usize,
+
+    /// Whether we're in the playback section
+    pub in_playback_section: bool,
+
     /// Whether we're in edit mode
     pub edit_mode: bool,
 
@@ -102,6 +108,8 @@ impl App {
             selected_track: 0,
             selected_column: Column::Arm,
             selected_on_mix_row: false,
+            selected_playback_track: 0,
+            in_playback_section: false,
             edit_mode: false,
             midi_sync_status: MidiSyncStatus::NoDevice,
             tempo: None,
@@ -134,15 +142,41 @@ impl App {
                 _ => {}
             }
         } else {
-            // Navigate to previous track or from mix row to last track
+            // Navigate between sections: mix -> playback -> tracks (reverse order)
             if self.selected_on_mix_row {
-                // Move from mix row back to last track
-                self.selected_on_mix_row = false;
-                let num_tracks = self.tracks().len();
-                if num_tracks > 0 {
-                    self.selected_track = num_tracks - 1;
+                // Move from mix row to playback or tracks
+                let num_playback = self.audio_engine.playback_tracks().len();
+                if num_playback > 0 {
+                    // Move to last playback track, go to Monitor column
+                    self.selected_on_mix_row = false;
+                    self.in_playback_section = true;
+                    self.selected_playback_track = num_playback - 1;
+                    self.selected_column = Column::Monitor;
+                } else {
+                    // No playback tracks, move to last input track
+                    // Keep Arm column when going back to input tracks
+                    self.selected_on_mix_row = false;
+                    let num_tracks = self.tracks().len();
+                    if num_tracks > 0 {
+                        self.selected_track = num_tracks - 1;
+                    }
+                }
+            } else if self.in_playback_section {
+                // Move from playback section
+                if self.selected_playback_track > 0 {
+                    // Move to previous playback track
+                    self.selected_playback_track -= 1;
+                } else {
+                    // Move to last input track
+                    // Column stays the same (Monitor/Solo/Level/Pan all exist in input tracks)
+                    self.in_playback_section = false;
+                    let num_tracks = self.tracks().len();
+                    if num_tracks > 0 {
+                        self.selected_track = num_tracks - 1;
+                    }
                 }
             } else if self.selected_track > 0 {
+                // Move to previous track
                 self.selected_track -= 1;
             }
         }
@@ -157,17 +191,38 @@ impl App {
                 _ => {}
             }
         } else {
-            // Navigate to next track or to mix row
+            // Navigate between sections: tracks -> playback -> mix
             if self.selected_on_mix_row {
-                // Already at mix row, can't go further down
+                // At mix row, can't go further down
+            } else if self.in_playback_section {
+                // Move to next playback track or to mix row
+                let num_playback = self.audio_engine.playback_tracks().len();
+                if self.selected_playback_track < num_playback.saturating_sub(1) {
+                    self.selected_playback_track += 1;
+                } else {
+                    // At last playback track, move to mix row
+                    self.in_playback_section = false;
+                    self.selected_on_mix_row = true;
+                    self.selected_column = Column::Arm;
+                }
             } else {
+                // Navigate to next track, playback section, or mix row
                 let num_tracks = self.tracks().len();
+                let num_playback = self.audio_engine.playback_tracks().len();
+
                 if self.selected_track < num_tracks - 1 {
                     self.selected_track += 1;
+                } else if num_playback > 0 {
+                    // At last track, move to playback section
+                    // Map column: Arm -> Monitor, others stay the same
+                    if self.selected_column == Column::Arm {
+                        self.selected_column = Column::Monitor;
+                    }
+                    self.in_playback_section = true;
+                    self.selected_playback_track = 0;
                 } else {
-                    // At last track, move to mix row
+                    // No playback tracks, move directly to mix row
                     self.selected_on_mix_row = true;
-                    // Set column to Arm for mix row
                     self.selected_column = Column::Arm;
                 }
             }
@@ -182,11 +237,25 @@ impl App {
                 self.pan_left();
             }
         } else {
-            // Navigate to previous column
-            let columns = Column::all();
-            if let Some(idx) = columns.iter().position(|c| c == &self.selected_column) {
-                if idx > 0 {
-                    self.selected_column = columns[idx - 1];
+            // Navigate to previous column based on current section
+            if self.selected_on_mix_row {
+                // Mix row only has Arm column, no left/right movement
+            } else if self.in_playback_section {
+                // Playback tracks: Monitor, Solo, Level, Pan
+                match self.selected_column {
+                    Column::Arm => {} // Should never be on Arm in playback
+                    Column::Monitor => {} // Already at leftmost
+                    Column::Solo => self.selected_column = Column::Monitor,
+                    Column::Level => self.selected_column = Column::Solo,
+                    Column::Pan => self.selected_column = Column::Level,
+                }
+            } else {
+                // Input tracks: Arm, Monitor, Solo, Level, Pan
+                let columns = Column::all();
+                if let Some(idx) = columns.iter().position(|c| c == &self.selected_column) {
+                    if idx > 0 {
+                        self.selected_column = columns[idx - 1];
+                    }
                 }
             }
         }
@@ -200,11 +269,25 @@ impl App {
                 self.pan_right();
             }
         } else {
-            // Navigate to next column
-            let columns = Column::all();
-            if let Some(idx) = columns.iter().position(|c| c == &self.selected_column) {
-                if idx < columns.len() - 1 {
-                    self.selected_column = columns[idx + 1];
+            // Navigate to next column based on current section
+            if self.selected_on_mix_row {
+                // Mix row only has Arm column, no left/right movement
+            } else if self.in_playback_section {
+                // Playback tracks: Monitor, Solo, Level, Pan
+                match self.selected_column {
+                    Column::Arm => {} // Should never be on Arm in playback
+                    Column::Monitor => self.selected_column = Column::Solo,
+                    Column::Solo => self.selected_column = Column::Level,
+                    Column::Level => self.selected_column = Column::Pan,
+                    Column::Pan => {} // Already at rightmost
+                }
+            } else {
+                // Input tracks: Arm, Monitor, Solo, Level, Pan
+                let columns = Column::all();
+                if let Some(idx) = columns.iter().position(|c| c == &self.selected_column) {
+                    if idx < columns.len() - 1 {
+                        self.selected_column = columns[idx + 1];
+                    }
                 }
             }
         }
@@ -271,12 +354,35 @@ impl App {
         if self.edit_mode {
             // Exit edit mode
             self.edit_mode = false;
+        } else if self.in_playback_section {
+            // Handle activation on playback tracks
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                match self.selected_column {
+                    Column::Monitor => {
+                        // Toggle monitoring immediately
+                        let current = track.is_monitoring();
+                        track.set_monitoring(!current);
+                    }
+                    Column::Solo => {
+                        // Toggle solo immediately
+                        let current = track.is_solo();
+                        track.set_solo(!current);
+                    }
+                    Column::Level | Column::Pan => {
+                        // Enter edit mode for level and pan
+                        self.edit_mode = true;
+                    }
+                    _ => {}
+                }
+            }
         } else if self.selected_on_mix_row {
             // Toggle mix recording armed state
             let current = self.audio_engine.is_mix_recording_armed();
             self.audio_engine.set_mix_recording_armed(!current);
         } else {
-            // Enter edit mode or toggle arm/monitor
+            // Enter edit mode or toggle arm/monitor (input tracks)
             match self.selected_column {
                 Column::Arm => {
                     let track = self.selected_track();
@@ -351,39 +457,91 @@ impl App {
 
     /// Increase level of selected track
     fn increase_level(&mut self) {
-        let track = self.selected_track();
-        let current = track.get_level();
-        track.set_level((current + 0.05).min(1.0));
+        if self.in_playback_section {
+            // Adjust playback track level
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                let current = track.get_level();
+                track.set_level((current + 0.05).min(1.0));
+            }
+        } else {
+            // Adjust input track level
+            let track = self.selected_track();
+            let current = track.get_level();
+            track.set_level((current + 0.05).min(1.0));
+        }
     }
 
     /// Decrease level of selected track
     fn decrease_level(&mut self) {
-        let track = self.selected_track();
-        let current = track.get_level();
-        track.set_level((current - 0.05).max(0.0));
+        if self.in_playback_section {
+            // Adjust playback track level
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                let current = track.get_level();
+                track.set_level((current - 0.05).max(0.0));
+            }
+        } else {
+            // Adjust input track level
+            let track = self.selected_track();
+            let current = track.get_level();
+            track.set_level((current - 0.05).max(0.0));
+        }
     }
 
     /// Pan left
     fn pan_left(&mut self) {
-        let track = self.selected_track();
-        let current = track.get_pan();
-        // Round to nearest 0.1 to avoid floating point drift
-        let new_pan = ((current - 0.1) * 10.0).round() / 10.0;
-        track.set_pan(new_pan.max(-1.0));
+        if self.in_playback_section {
+            // Adjust playback track pan
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                let current = track.get_pan();
+                // Round to nearest 0.1 to avoid floating point drift
+                let new_pan = ((current - 0.1) * 10.0).round() / 10.0;
+                track.set_pan(new_pan.max(-1.0));
+            }
+        } else {
+            // Adjust input track pan
+            let track = self.selected_track();
+            let current = track.get_pan();
+            // Round to nearest 0.1 to avoid floating point drift
+            let new_pan = ((current - 0.1) * 10.0).round() / 10.0;
+            track.set_pan(new_pan.max(-1.0));
+        }
     }
 
     /// Pan right
     fn pan_right(&mut self) {
-        let track = self.selected_track();
-        let current = track.get_pan();
-        // Round to nearest 0.1 to avoid floating point drift
-        let new_pan = ((current + 0.1) * 10.0).round() / 10.0;
-        track.set_pan(new_pan.min(1.0));
+        if self.in_playback_section {
+            // Adjust playback track pan
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                let current = track.get_pan();
+                // Round to nearest 0.1 to avoid floating point drift
+                let new_pan = ((current + 0.1) * 10.0).round() / 10.0;
+                track.set_pan(new_pan.min(1.0));
+            }
+        } else {
+            // Adjust input track pan
+            let track = self.selected_track();
+            let current = track.get_pan();
+            // Round to nearest 0.1 to avoid floating point drift
+            let new_pan = ((current + 0.1) * 10.0).round() / 10.0;
+            track.set_pan(new_pan.min(1.0));
+        }
     }
 
     /// Update peak meters (decay)
     pub fn update_meters(&mut self) {
         for track in self.tracks().iter() {
+            track.decay_peak_level(self.meter_decay);
+        }
+        // Decay playback track peak levels
+        for track in self.audio_engine.playback_tracks().iter() {
             track.decay_peak_level(self.meter_decay);
         }
     }

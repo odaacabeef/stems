@@ -8,8 +8,10 @@ use std::sync::Arc;
 use crate::audio::callback::{
     create_audio_callback, create_error_callback, create_monitor_callback, AudioCallbackState,
 };
+use crate::audio::coreaudio_playback::{find_device_by_name, CoreAudioPlaybackStream};
 use crate::audio::device::{get_default_input_device, get_max_channels_input_config, get_max_channels_output_config};
 use crate::audio::mix_writer::MixWriter;
+use crate::audio::playback::PlaybackTrack;
 use crate::audio::track::Track;
 use crate::audio::writer::{generate_timestamp, FileWriter};
 use crate::types::{RING_BUFFER_SECONDS, SAMPLE_RATE};
@@ -37,6 +39,9 @@ pub struct AudioEngine {
     /// Active output audio stream (for monitoring)
     output_stream: Option<Stream>,
 
+    /// CoreAudio playback stream (macOS - immediate stop control)
+    coreaudio_playback_stream: Option<CoreAudioPlaybackStream>,
+
     /// File writer
     file_writer: Option<FileWriter>,
 
@@ -55,6 +60,12 @@ pub struct AudioEngine {
 
     /// Mix recording is active
     mix_recording: Arc<AtomicBool>,
+
+    /// Playback tracks for audio file playback
+    playback_tracks: Arc<Vec<PlaybackTrack>>,
+
+    /// Playback state flag (separate from recording)
+    playing: Arc<AtomicBool>,
 }
 
 impl AudioEngine {
@@ -85,12 +96,15 @@ impl AudioEngine {
             recording: Arc::new(AtomicBool::new(false)),
             input_stream: None,
             output_stream: None,
+            coreaudio_playback_stream: None,
             file_writer: None,
             output_dir,
             monitor_channels: None,
             mix_recording_armed: Arc::new(AtomicBool::new(false)),
             mix_writer: None,
             mix_recording: Arc::new(AtomicBool::new(false)),
+            playback_tracks: Arc::new(Vec::new()),
+            playing: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -126,12 +140,15 @@ impl AudioEngine {
             recording: Arc::new(AtomicBool::new(false)),
             input_stream: None,
             output_stream: None,
+            coreaudio_playback_stream: None,
             file_writer: None,
             output_dir,
             monitor_channels: None,
             mix_recording_armed: Arc::new(AtomicBool::new(false)),
             mix_writer: None,
             mix_recording: Arc::new(AtomicBool::new(false)),
+            playback_tracks: Arc::new(Vec::new()),
+            playing: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -154,10 +171,14 @@ impl AudioEngine {
         let output_channels = output_config.channels();
 
         // Create ring buffer for live monitoring (always stereo internally)
-        // Keep buffer small for low latency (~50ms)
+        // Keep buffer VERY small for low latency (~10ms)
         // Buffer size = (sample_rate * channels * duration_ms) / 1000
-        let monitor_buffer_samples = (output_sample_rate as usize * 2 * 50) / 1000; // 50ms stereo buffer
+        let monitor_buffer_samples = (output_sample_rate as usize * 2 * 10) / 1000; // 10ms stereo buffer
         let (monitor_producer, monitor_consumer) = rtrb::RingBuffer::new(monitor_buffer_samples);
+
+        // Create ring buffer for playback audio (separate stream for immediate stop control)
+        let playback_buffer_samples = (output_sample_rate as usize * 2 * 10) / 1000; // 10ms stereo buffer
+        let (playback_producer, playback_consumer) = rtrb::RingBuffer::new(playback_buffer_samples);
 
         // Create ring buffer for mix recording (stereo f32 samples)
         let mix_buffer_samples = SAMPLE_RATE as usize * RING_BUFFER_SECONDS * 2; // Stereo
@@ -187,6 +208,9 @@ impl AudioEngine {
             monitor_producer,
             mix_recording_producer,
             mix_recording_armed: self.mix_recording_armed.clone(),
+            playback_tracks: self.playback_tracks.clone(),
+            playing: self.playing.clone(),
+            playback_producer,
         };
 
         // Build input audio stream
@@ -200,10 +224,11 @@ impl AudioEngine {
 
         // Build output audio stream for monitoring (using same device as input)
         // Create explicit stream config with all output channels
+        // Use smallest possible buffer size for minimum latency
         let output_stream_config = StreamConfig {
             channels: output_channels,
             sample_rate: output_sample_rate,
-            buffer_size: cpal::BufferSize::Fixed(256),
+            buffer_size: cpal::BufferSize::Fixed(64),
         };
 
         // Determine monitor channel routing (default to channels 1-2)
@@ -228,15 +253,42 @@ impl AudioEngine {
             )
             .context("Failed to build audio output stream")?;
 
-        // Start both streams
+        // Create CoreAudio playback stream (macOS - provides immediate stop control)
+        // Use very small buffer (64 frames) for minimal latency
+        // Get the device name from cpal and find the corresponding CoreAudio device ID
+        let device_name = self
+            .device
+            .description()
+            .ok()
+            .map(|desc| desc.name().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+        let device_id = find_device_by_name(&device_name);
+
+        let coreaudio_stream = CoreAudioPlaybackStream::new(
+            output_sample_rate as f64,
+            64, // Very small buffer for immediate stop
+            device_id,
+            playback_consumer,
+            output_channels as usize,
+            monitor_start.saturating_sub(1) as usize, // Convert to 0-indexed
+            monitor_end.saturating_sub(1) as usize,   // Convert to 0-indexed
+        )
+        .context("Failed to create CoreAudio playback stream")?;
+
+        // Start all streams immediately (keep them running for zero-latency start/stop)
         input_stream.play().context("Failed to play input stream")?;
         output_stream
             .play()
             .context("Failed to play output stream")?;
 
-        // Store both streams
+        // Start CoreAudio playback stream immediately (will output silence until playing flag is set)
+        let mut coreaudio_stream_started = coreaudio_stream;
+        coreaudio_stream_started.start().context("Failed to start CoreAudio playback stream")?;
+
+        // Store all streams
         self.input_stream = Some(input_stream);
         self.output_stream = Some(output_stream);
+        self.coreaudio_playback_stream = Some(coreaudio_stream_started);
 
         // Check for sample rate mismatch (can cause audio glitches)
         let warning = if self.config.sample_rate != output_sample_rate {
@@ -263,6 +315,9 @@ impl AudioEngine {
             drop(stream);
         }
 
+        // CoreAudio stream cleanup happens in Drop
+        self.coreaudio_playback_stream = None;
+
         Ok(())
     }
 
@@ -270,6 +325,16 @@ impl AudioEngine {
     pub fn start_recording(&mut self) -> Result<String> {
         if self.recording.load(Ordering::Relaxed) {
             anyhow::bail!("Already recording");
+        }
+
+        // Wait for previous file writer threads to finish (if any)
+        // This is where the blocking happens - better here than on Stop
+        if let Some(file_writer) = &mut self.file_writer {
+            file_writer.join()?;
+        }
+
+        if let Some(mix_writer) = &mut self.mix_writer {
+            mix_writer.join()?;
         }
 
         // Generate timestamp for this recording session
@@ -309,7 +374,35 @@ impl AudioEngine {
         Ok(timestamp)
     }
 
-    /// Stop recording
+    /// Stop recording immediately (non-blocking - signals writer threads to stop)
+    pub fn stop_recording_async(&mut self) {
+        if !self.recording.load(Ordering::Relaxed) {
+            return; // Not recording
+        }
+
+        // Clear recording flag immediately (stops audio callback from writing more samples)
+        self.recording.store(false, Ordering::Relaxed);
+
+        // Clear mix recording flag
+        self.mix_recording.store(false, Ordering::Relaxed);
+
+        // Clear recording status on tracks
+        for track in self.tracks.iter() {
+            track.set_recording(false);
+        }
+
+        // Signal file writers to stop (non-blocking - just sets running flag to false)
+        // Threads will drain buffers in background, we'll join them on next start
+        if let Some(file_writer) = &mut self.file_writer {
+            file_writer.stop_async();
+        }
+
+        if let Some(mix_writer) = &mut self.mix_writer {
+            mix_writer.stop_async();
+        }
+    }
+
+    /// Stop recording (blocking - drains buffers and finalizes files)
     pub fn stop_recording(&mut self) -> Result<()> {
         if !self.recording.load(Ordering::Relaxed) {
             return Ok(()); // Not recording
@@ -378,6 +471,52 @@ impl AudioEngine {
     pub fn is_mix_recording(&self) -> bool {
         self.mix_recording.load(Ordering::Relaxed)
     }
+
+    /// Set playback tracks
+    pub fn set_playback_tracks(&mut self, tracks: Vec<PlaybackTrack>) {
+        self.playback_tracks = Arc::new(tracks);
+    }
+
+    /// Get reference to playback tracks
+    pub fn playback_tracks(&self) -> &Arc<Vec<PlaybackTrack>> {
+        &self.playback_tracks
+    }
+
+    /// Start playback
+    pub fn start_playback(&mut self) -> Result<()> {
+        // Reset all playback positions to 0
+        for track in self.playback_tracks.iter() {
+            track.reset();
+        }
+
+        // Set playing flag - audio callback will start mixing playback immediately
+        self.playing.store(true, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    /// Stop playback
+    pub fn stop_playback(&mut self) -> Result<()> {
+        // Clear playing flag immediately - audio callback stops mixing on next call (~1ms latency)
+        self.playing.store(false, Ordering::Relaxed);
+
+        // Drain the ring buffer to clear any queued audio (non-blocking, ring buffer is small)
+        if let Some(ref mut stream) = self.coreaudio_playback_stream {
+            stream.drain_buffer();
+        }
+
+        // Reset playback positions
+        for track in self.playback_tracks.iter() {
+            track.reset();
+        }
+
+        Ok(())
+    }
+
+    /// Check if currently playing
+    pub fn is_playing(&self) -> bool {
+        self.playing.load(Ordering::Relaxed)
+    }
 }
 
 impl Drop for AudioEngine {
@@ -401,10 +540,10 @@ mod tests {
         if let Ok(engine) = AudioEngine::new(output_dir) {
             println!("Audio engine created successfully");
             println!("Device: {}", engine.device_name());
-            println!("Channels: {}", engine.num_channels());
+            println!("Channels: {}", engine.num_channels);
             println!("Sample rate: {}", engine.sample_rate());
             // Should have one track per input channel
-            assert_eq!(engine.tracks().len(), engine.num_channels());
+            assert_eq!(engine.tracks().len(), engine.num_channels);
         }
     }
 }

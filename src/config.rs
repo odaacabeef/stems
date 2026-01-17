@@ -12,6 +12,9 @@ pub struct Config {
 
     #[serde(default)]
     pub tracks: HashMap<usize, TrackConfig>,
+
+    #[serde(default)]
+    pub audio: Vec<AudioFileConfig>,
 }
 
 /// Device configuration
@@ -27,6 +30,24 @@ pub struct DeviceConfig {
 pub struct TrackConfig {
     #[serde(default)]
     pub arm: Option<bool>,
+
+    #[serde(default)]
+    pub monitor: Option<bool>,
+
+    #[serde(default)]
+    pub solo: Option<bool>,
+
+    #[serde(default)]
+    pub level: Option<f32>,
+
+    #[serde(default)]
+    pub pan: Option<f32>,
+}
+
+/// Audio playback file configuration
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AudioFileConfig {
+    pub file: String,
 
     #[serde(default)]
     pub monitor: Option<bool>,
@@ -89,6 +110,36 @@ impl Config {
             }
         }
 
+        // Validate audio playback configurations
+        for audio_config in &self.audio {
+            // Validate file exists
+            if !Path::new(&audio_config.file).exists() {
+                anyhow::bail!("Audio file not found: {}", audio_config.file);
+            }
+
+            // Validate level
+            if let Some(level) = audio_config.level {
+                if !(0.0..=1.0).contains(&level) {
+                    anyhow::bail!(
+                        "Audio file '{}' level must be between 0.0 and 1.0, got {}",
+                        audio_config.file,
+                        level
+                    );
+                }
+            }
+
+            // Validate pan
+            if let Some(pan) = audio_config.pan {
+                if !(-1.0..=1.0).contains(&pan) {
+                    anyhow::bail!(
+                        "Audio file '{}' pan must be between -1.0 and 1.0, got {}",
+                        audio_config.file,
+                        pan
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -98,6 +149,7 @@ impl Default for Config {
         Self {
             devices: DeviceConfig::default(),
             tracks: HashMap::new(),
+            audio: Vec::new(),
         }
     }
 }

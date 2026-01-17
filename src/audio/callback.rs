@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use rtrb::Producer;
+use crate::audio::playback::PlaybackTrack;
 use crate::audio::track::Track;
 
 /// Sample data sent to file writer
@@ -18,6 +19,9 @@ pub struct AudioCallbackState {
     pub monitor_producer: Producer<f32>,
     pub mix_recording_producer: Producer<f32>,
     pub mix_recording_armed: Arc<AtomicBool>,
+    pub playback_tracks: Arc<Vec<PlaybackTrack>>,
+    pub playing: Arc<AtomicBool>,
+    pub playback_producer: Producer<f32>,  // Separate producer for playback audio
 }
 
 /// Process audio input in real-time
@@ -37,12 +41,22 @@ pub fn process_audio_input(
     mix_recording_producer: &mut Producer<f32>,
     mix_recording_armed: &AtomicBool,
     num_input_channels: usize,
+    playback_tracks: &[PlaybackTrack],
+    playing: &AtomicBool,
+    playback_producer: &mut Producer<f32>,
 ) {
     let num_frames = input_data.len() / num_input_channels;
     let is_recording = recording.load(Ordering::Relaxed);
+    let is_playing = playing.load(Ordering::Relaxed);
 
     // Check if any track has solo enabled (once per buffer for performance)
     let any_solo = tracks.iter().any(|t| t.is_solo());
+    let any_playback_solo = playback_tracks.iter().any(|t| t.is_solo());
+    let any_solo_overall = any_solo || any_playback_solo;
+
+    // Track peak levels for playback tracks across the buffer
+    // Use None to indicate track was not processed (not monitoring)
+    let mut playback_peaks: Vec<Option<f32>> = vec![None; playback_tracks.len()];
 
     // Process each frame
     for frame_idx in 0..num_frames {
@@ -88,7 +102,7 @@ pub fn process_audio_input(
             // Mix into monitor output if monitoring is enabled
             // Solo logic: if any track is soloed, only monitor soloed tracks
             // Otherwise, monitor according to monitoring flag
-            let should_monitor = if any_solo {
+            let should_monitor = if any_solo_overall {
                 track.is_solo()
             } else {
                 track.is_monitoring()
@@ -106,14 +120,114 @@ pub fn process_audio_input(
             }
         }
 
-        // Send mixed output to monitor (stereo)
-        let _ = monitor_producer.push(monitor_left);
-        let _ = monitor_producer.push(monitor_right);
+        // Process playback tracks into separate playback stream
+        let mut playback_left = 0.0f32;
+        let mut playback_right = 0.0f32;
+
+        if is_playing {
+            for (track_idx, playback_track) in playback_tracks.iter().enumerate() {
+                // Solo logic: if any solo enabled (input or playback), only monitor soloed tracks
+                let should_monitor = if any_solo_overall {
+                    playback_track.is_solo()
+                } else {
+                    playback_track.is_monitoring()
+                };
+
+                if !should_monitor {
+                    continue;
+                }
+
+                // Get current playback position (frame index)
+                let base_position = playback_track.get_position();
+                let num_frames_total = playback_track.num_frames();
+
+                // Skip if we've somehow gone past the end (shouldn't happen but be safe)
+                if num_frames_total == 0 {
+                    continue;
+                }
+
+                // Calculate position for this specific frame in the buffer
+                let current_position = (base_position + frame_idx) % num_frames_total;
+
+                // Read sample(s) from playback buffer
+                let (left_sample, right_sample) = if playback_track.channels == 1 {
+                    // Mono: duplicate to both channels
+                    let sample = playback_track.samples[current_position];
+                    (sample, sample)
+                } else {
+                    // Stereo: read both channels
+                    let sample_idx = current_position * 2;
+                    let left = playback_track.samples[sample_idx];
+                    let right = playback_track.samples[sample_idx + 1];
+                    (left, right)
+                };
+
+                // Apply level
+                let level = playback_track.get_level();
+                let left_sample = left_sample * level;
+                let right_sample = right_sample * level;
+
+                // Apply panning (equal power law)
+                let pan = playback_track.get_pan();
+                let pan_angle = (pan + 1.0) * 0.25 * std::f32::consts::PI;
+                let left_gain = pan_angle.cos();
+                let right_gain = pan_angle.sin();
+
+                let panned_left = left_sample * left_gain;
+                let panned_right = right_sample * right_gain;
+
+                playback_left += panned_left;
+                playback_right += panned_right;
+
+                // Track peak level across buffer
+                let peak = panned_left.abs().max(panned_right.abs());
+                playback_peaks[track_idx] = Some(match playback_peaks[track_idx] {
+                    Some(current_max) => current_max.max(peak),
+                    None => peak,
+                });
+            }
+        }
+
+        // Send playback audio to separate playback stream
+        let _ = playback_producer.push(playback_left);
+        let _ = playback_producer.push(playback_right);
+
+        // Combine input tracks and playback for monitor output
+        let mixed_left = monitor_left + playback_left;
+        let mixed_right = monitor_right + playback_right;
+
+        // Send combined output to monitor (stereo)
+        let _ = monitor_producer.push(mixed_left);
+        let _ = monitor_producer.push(mixed_right);
 
         // If recording and mix recording is armed, send to mix recording buffer
         if is_recording && mix_recording_armed.load(Ordering::Relaxed) {
-            let _ = mix_recording_producer.push(monitor_left);
-            let _ = mix_recording_producer.push(monitor_right);
+            let _ = mix_recording_producer.push(mixed_left);
+            let _ = mix_recording_producer.push(mixed_right);
+        }
+    }
+
+    // Increment playback positions after processing all frames (with looping)
+    if is_playing {
+        for playback_track in playback_tracks {
+            let position = playback_track.get_position();
+            let num_frames_total = playback_track.num_frames();
+
+            if num_frames_total > 0 {
+                let new_position = (position + num_frames) % num_frames_total;
+                playback_track.set_position(new_position);
+            }
+        }
+    }
+
+    // Update peak meters for playback tracks with buffer maximum
+    // Only update if track was actually processing audio (Some value)
+    for (i, playback_track) in playback_tracks.iter().enumerate() {
+        if let Some(peak) = playback_peaks[i] {
+            let current_peak = playback_track.get_peak_level();
+            if peak > current_peak {
+                playback_track.update_peak_level(peak);
+            }
         }
     }
 }
@@ -135,6 +249,9 @@ pub fn create_audio_callback(
             &mut state.mix_recording_producer,
             &state.mix_recording_armed,
             num_input_channels,
+            &state.playback_tracks,
+            &state.playing,
+            &mut state.playback_producer,
         );
     }
 }
@@ -209,6 +326,10 @@ mod tests {
         let (mut mix_recording_producer, _mix_recording_consumer) = rtrb::RingBuffer::new(1024);
         let mix_recording_armed = Arc::new(AtomicBool::new(false));
 
+        let playback_tracks: Vec<PlaybackTrack> = vec![];
+        let playing = Arc::new(AtomicBool::new(false));
+        let (mut playback_producer, _playback_consumer) = rtrb::RingBuffer::new(1024);
+
         process_audio_input(
             &input_data,
             &tracks,
@@ -218,6 +339,9 @@ mod tests {
             &mut mix_recording_producer,
             &mix_recording_armed,
             1, // mono
+            &playback_tracks,
+            &playing,
+            &mut playback_producer,
         );
 
         // Should not have written anything to recording buffer
@@ -239,6 +363,10 @@ mod tests {
         let (mut mix_recording_producer, _mix_recording_consumer) = rtrb::RingBuffer::new(1024);
         let mix_recording_armed = Arc::new(AtomicBool::new(false));
 
+        let playback_tracks: Vec<PlaybackTrack> = vec![];
+        let playing = Arc::new(AtomicBool::new(false));
+        let (mut playback_producer, _playback_consumer) = rtrb::RingBuffer::new(1024);
+
         process_audio_input(
             &input_data,
             &tracks,
@@ -248,6 +376,9 @@ mod tests {
             &mut mix_recording_producer,
             &mix_recording_armed,
             1, // mono
+            &playback_tracks,
+            &playing,
+            &mut playback_producer,
         );
 
         // Should have written 16 samples
@@ -274,6 +405,10 @@ mod tests {
         let (mut mix_recording_producer, _mix_recording_consumer) = rtrb::RingBuffer::new(1024);
         let mix_recording_armed = Arc::new(AtomicBool::new(false));
 
+        let playback_tracks: Vec<PlaybackTrack> = vec![];
+        let playing = Arc::new(AtomicBool::new(false));
+        let (mut playback_producer, _playback_consumer) = rtrb::RingBuffer::new(1024);
+
         process_audio_input(
             &input_data,
             &tracks,
@@ -283,6 +418,9 @@ mod tests {
             &mut mix_recording_producer,
             &mix_recording_armed,
             1, // mono
+            &playback_tracks,
+            &playing,
+            &mut playback_producer,
         );
 
         // Peak should be updated to 0.8 (with level=1.0)
@@ -310,6 +448,10 @@ mod tests {
         let (mut mix_recording_producer, _mix_recording_consumer) = rtrb::RingBuffer::new(1024);
         let mix_recording_armed = Arc::new(AtomicBool::new(false));
 
+        let playback_tracks: Vec<PlaybackTrack> = vec![];
+        let playing = Arc::new(AtomicBool::new(false));
+        let (mut playback_producer, _playback_consumer) = rtrb::RingBuffer::new(1024);
+
         process_audio_input(
             &input_data,
             &tracks,
@@ -319,6 +461,9 @@ mod tests {
             &mut mix_recording_producer,
             &mix_recording_armed,
             2, // stereo
+            &playback_tracks,
+            &playing,
+            &mut playback_producer,
         );
 
         // Should have 8 samples total (4 frames * 2 tracks)

@@ -6,7 +6,7 @@ build:
 
 # Run the project
 run:
-	cargo run
+	cargo run -- -c examples/basic.yaml
 
 # Install to ~/.cargo/bin
 install:

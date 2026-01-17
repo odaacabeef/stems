@@ -20,7 +20,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use crate::app::App;
 use crate::config::Config;
 use crate::midi::MidiCommand;
-use crate::types::RecordingState;
+use crate::types::{RecordingState, SAMPLE_RATE};
 use crate::ui::{handle_input, render_ui};
 
 /// stems - multi-track audio recorder
@@ -173,6 +173,36 @@ fn apply_track_config(audio_engine: &audio::AudioEngine, config: &Config) -> Res
     Ok(())
 }
 
+/// Load playback tracks from config file
+fn load_playback_tracks(config: &Config, sample_rate: u32) -> Result<Vec<audio::PlaybackTrack>> {
+    let mut playback_tracks = Vec::new();
+
+    for audio_config in &config.audio {
+        let filepath = std::path::Path::new(&audio_config.file);
+
+        // Load the WAV file
+        let track = audio::PlaybackTrack::load_wav_file(filepath, sample_rate)?;
+
+        // Apply configuration
+        if let Some(monitor) = audio_config.monitor {
+            track.set_monitoring(monitor);
+        }
+        if let Some(solo) = audio_config.solo {
+            track.set_solo(solo);
+        }
+        if let Some(level) = audio_config.level {
+            track.set_level(level);
+        }
+        if let Some(pan) = audio_config.pan {
+            track.set_pan(pan);
+        }
+
+        playback_tracks.push(track);
+    }
+
+    Ok(playback_tracks)
+}
+
 fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse();
@@ -210,6 +240,10 @@ fn main() -> Result<()> {
 
     // Apply track configurations from config file
     apply_track_config(&app.audio_engine, &config)?;
+
+    // Load playback tracks from config file
+    let playback_tracks = load_playback_tracks(&config, SAMPLE_RATE)?;
+    app.audio_engine.set_playback_tracks(playback_tracks);
 
     // Start audio stream
     if let Some(warning) = app.audio_engine.start_stream()? {
@@ -372,18 +406,33 @@ fn run_app<B: ratatui::backend::Backend>(
 }
 
 /// Handle MIDI command from MIDI thread
-fn handle_midi_command(app: &mut App, cmd: MidiCommand) -> Result<()> {
+fn handle_midi_command(
+    app: &mut App,
+    cmd: MidiCommand,
+) -> Result<()> {
     match cmd {
         MidiCommand::Start => {
             app.recording_state = RecordingState::WaitingForClock;
+            // Start playback if there are playback tracks
+            if !app.audio_engine.playback_tracks().is_empty() {
+                app.audio_engine.start_playback()?;
+            }
         }
 
         MidiCommand::Stop => {
-            if app.audio_engine.is_recording() {
-                app.audio_engine.stop_recording()?;
+            // Stop playback immediately (non-blocking)
+            if app.audio_engine.is_playing() {
+                app.audio_engine.stop_playback()?;
             }
+
+            // Update UI state immediately so user sees response
             app.recording_state = RecordingState::Stopped;
             app.recording_start_time = None;
+
+            // Stop recording flag immediately (non-blocking)
+            if app.audio_engine.is_recording() {
+                app.audio_engine.stop_recording_async();
+            }
         }
 
         MidiCommand::Clock => {

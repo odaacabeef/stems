@@ -8,7 +8,7 @@ use ratatui::{
 use std::sync::Arc;
 
 use crate::app::App;
-use crate::audio::Track;
+use crate::audio::{PlaybackTrack, Track};
 use crate::app::Column;
 
 /// Render the track list
@@ -228,3 +228,121 @@ pub fn render_mix_recording_row(
     let paragraph = Paragraph::new(line);
     frame.render_widget(paragraph, area);
 }
+
+/// Render the playback tracks list
+pub fn render_playback_list(
+    frame: &mut Frame,
+    area: Rect,
+    playback_tracks: &Arc<Vec<PlaybackTrack>>,
+    selected_index: usize,
+    selected_column: Column,
+    edit_mode: bool,
+    in_playback_section: bool,
+) {
+    // Rows
+    let rows: Vec<Row> = playback_tracks
+        .iter()
+        .enumerate()
+        .map(|(i, track)| {
+            let is_selected = in_playback_section && i == selected_index;
+
+            // Monitor status
+            let mon_status = if track.is_monitoring() {
+                "[M]"
+            } else {
+                "[ ]"
+            };
+
+            // Solo status
+            let solo_status = if track.is_solo() {
+                "[S]"
+            } else {
+                "[ ]"
+            };
+
+            // Level
+            let level_pct = (track.get_level() * 100.0) as u8;
+            let level_str = format!("{:3}%", level_pct);
+
+            // Pan
+            let pan = track.get_pan();
+            let pan_str = if pan < 0.0 {
+                format!("L{:2}", (pan.abs() * 10.0) as u8)
+            } else if pan > 0.0 {
+                format!("R{:2}", (pan * 10.0) as u8)
+            } else {
+                " C ".to_string()
+            };
+
+            // Peak level for meter
+            let peak = track.get_peak_level();
+            let meter_str = create_meter_string(peak, 20);
+
+            // Helper to create cell style for selected cells
+            let cell_style = |column: Column| {
+                if is_selected && selected_column == column {
+                    if edit_mode {
+                        // Edit mode: cyan background with bold text
+                        Style::default()
+                            .bg(Color::Cyan)
+                            .fg(Color::Black)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        // Selected but not editing: dark gray background
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    }
+                } else {
+                    Style::default()
+                }
+            };
+
+            // Track number (1-indexed)
+            let track_number = format!("{:2}", i + 1);
+
+            Row::new(vec![
+                Cell::from("  "), // Left padding
+                Cell::from(track_number),
+                Cell::from("   "), // Skip arm column
+                Cell::from(mon_status).style(
+                    if is_selected && selected_column == Column::Monitor {
+                        cell_style(Column::Monitor).fg(if track.is_monitoring() { Color::Green } else { Color::Gray })
+                    } else {
+                        Style::default().fg(if track.is_monitoring() { Color::Green } else { Color::Gray })
+                    }
+                ),
+                Cell::from(solo_status).style(
+                    if is_selected && selected_column == Column::Solo {
+                        cell_style(Column::Solo).fg(if track.is_solo() { Color::Cyan } else { Color::Gray })
+                    } else {
+                        Style::default().fg(if track.is_solo() { Color::Cyan } else { Color::Gray })
+                    }
+                ),
+                Cell::from(level_str).style(cell_style(Column::Level)),
+                Cell::from(pan_str).style(cell_style(Column::Pan)),
+                Cell::from(meter_str),
+            ])
+        })
+        .collect();
+
+    // Create table with same column widths as input tracks
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(2),  // Left padding
+            Constraint::Length(3),  // Track (empty for playback)
+            Constraint::Length(3),  // Arm (empty for playback)
+            Constraint::Length(3),  // Monitor
+            Constraint::Length(3),  // Solo
+            Constraint::Length(4),  // Level
+            Constraint::Length(3),  // Pan
+            Constraint::Min(20),    // Meter + filename
+        ],
+    )
+    .column_spacing(1);
+
+    frame.render_widget(table, area);
+}
+
