@@ -2,6 +2,8 @@
 
 Terminal-based multi-track audio recorder with MIDI clock sync.
 
+**Platform:** macOS only (built specifically with CoreAudio integration)
+
 ## Features
 
 - **Multi-track recording** - One track per input channel (supports 32+ channels)
