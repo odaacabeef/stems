@@ -142,6 +142,8 @@ S         = Toggle solo for all tracks (input + playback)
 
 g/G       = Jump to first track / mix recording row
 
+0/$       = Jump to leftmost / rightmost column in current row
+
 ?         = Toggle help
 
 q, ctrl+c = quit

@@ -311,6 +311,38 @@ impl App {
         }
     }
 
+    /// Jump to leftmost column in current row
+    pub fn jump_to_leftmost(&mut self) {
+        if !self.edit_mode {
+            if self.selected_on_mix_row {
+                // Mix row only has Arm column
+                self.selected_column = Column::Arm;
+            } else if self.in_playback_section {
+                // Playback tracks: leftmost is Monitor
+                self.selected_column = Column::Monitor;
+            } else {
+                // Input tracks: leftmost is Arm
+                self.selected_column = Column::Arm;
+            }
+        }
+    }
+
+    /// Jump to rightmost column in current row
+    pub fn jump_to_rightmost(&mut self) {
+        if !self.edit_mode {
+            if self.selected_on_mix_row {
+                // Mix row only has Arm column
+                self.selected_column = Column::Arm;
+            } else if self.in_playback_section {
+                // Playback tracks: rightmost is Pan
+                self.selected_column = Column::Pan;
+            } else {
+                // Input tracks: rightmost is Pan
+                self.selected_column = Column::Pan;
+            }
+        }
+    }
+
     /// Jump up 5 tracks
     pub fn jump_up_5(&mut self) {
         if !self.edit_mode {

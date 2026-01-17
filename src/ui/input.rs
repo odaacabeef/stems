@@ -45,6 +45,12 @@ fn handle_key_event(app: &mut App, key: KeyEvent) {
         KeyCode::Char('G') => {
             app.jump_to_last();
         }
+        KeyCode::Char('0') => {
+            app.jump_to_leftmost();
+        }
+        KeyCode::Char('$') => {
+            app.jump_to_rightmost();
+        }
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.jump_up_5();
         }

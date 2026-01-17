@@ -19,6 +19,8 @@ pub fn render_help_view(frame: &mut Frame, area: Rect) {
         Line::from("    ←→ or h/l        Navigate between columns (Arm/Monitor/Solo/Level/Pan)"),
         Line::from("    g                Jump to first track"),
         Line::from("    G                Jump to last track"),
+        Line::from("    0                Jump to leftmost column in current row"),
+        Line::from("    $                Jump to rightmost column in current row"),
         Line::from("    Ctrl+u           Jump up 5 tracks"),
         Line::from("    Ctrl+d           Jump down 5 tracks"),
         Line::from(""),
