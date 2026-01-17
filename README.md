@@ -35,6 +35,8 @@ stems --config my-setup.yaml
 stems uses a YAML configuration file for device and track settings. By default,
 it looks for `stems.yaml` in the current directory.
 
+See [examples/basic.yaml](examples/basic.yaml) for a complete, annotated example.
+
 Create a `stems.yaml` file:
 
 ```yaml

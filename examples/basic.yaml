@@ -1,0 +1,76 @@
+# Basic stems configuration example
+#
+# This file shows a complete configuration for recording with stems.
+# Copy this to your project directory as `stems.yaml` and customize.
+
+devices:
+  # Audio device for input and output (uses single clock domain)
+  # Can be a device name substring or index number
+  # Examples: "ES-9", "BlackHole 16ch", "BlackHole 16ch + ES-9", "0"
+  # Omit to use system default device
+  audio: "BlackHole 16ch + ES-9"
+
+  # Monitor output channels (1-indexed, stereo pair)
+  # For aggregate devices, calculate: base_channels + physical_device_start
+  # Example: BlackHole (1-16) + ES-9 (17-32), so use 17-18 for ES-9 L+R
+  # Defaults to "1-2" if omitted
+  monitorch: "17-18"
+
+  # MIDI input device for transport control (Start/Stop/Clock)
+  # Can be a device name substring or index number
+  # Omit to use first available MIDI device (if any)
+  midiin: "mc-source-b"
+
+# Input track configuration (optional)
+# Only configure tracks you want to customize
+# Track numbers are 1-based and match the UI display
+tracks:
+  1:
+    arm: false        # Armed for recording (default: false)
+    monitor: true     # Heard in monitor output (default: false)
+    solo: false       # Solo mode (default: false)
+    level: 1.0        # Volume 0.0-1.0 (default: 1.0)
+    pan: -0.5         # Pan -1.0 (left) to 1.0 (right) (default: 0.0)
+
+  2:
+    monitor: true
+    level: 0.9
+    pan: 0.5
+
+  3:
+    monitor: true
+    level: 0.3
+    pan: -1.0
+
+  4:
+    monitor: true
+    level: 0.3
+    pan: 1.0
+
+  # Tracks 5-9: Not configured, use defaults
+
+  10:
+    monitor: true
+  11:
+    monitor: true
+  12:
+    monitor: true
+    level: 0.7
+
+# Audio file playback (optional)
+# Files are pre-loaded into memory at startup
+# Must be 48kHz WAV files (mono or stereo)
+# Files loop continuously during playback
+# Uncomment the section below to enable audio playback:
+#
+# audio:
+#   # Backing track or previous recording to play along with
+#   - file: backing-track.wav     # Path relative to working directory
+#     monitor: true               # Hear this file (default: true)
+#     solo: false                 # Solo this file (default: false)
+#     level: 0.8                  # Volume 0.0-1.0 (default: 1.0)
+#     pan: 0.0                    # Pan -1.0 to 1.0 (default: 0.0)
+
+# Notes:
+# - Playback starts/stops with MIDI transport (synchronized with recording)
+# - Mix recording (armed in UI) includes both input tracks and playback audio
