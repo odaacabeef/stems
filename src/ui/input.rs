@@ -5,8 +5,9 @@ use crate::app::App;
 
 /// Handle keyboard input
 pub fn handle_input(app: &mut App) -> anyhow::Result<()> {
-    // Poll for events with timeout
-    if event::poll(Duration::from_millis(16))? {
+    // Poll for events with minimal timeout (1ms) for responsive MIDI handling
+    // Previous 16ms timeout was causing delayed MIDI Stop response
+    if event::poll(Duration::from_millis(1))? {
         if let Event::Key(key) = event::read()? {
             handle_key_event(app, key);
         }

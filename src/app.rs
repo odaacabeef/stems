@@ -57,6 +57,12 @@ pub struct App {
     /// Whether the mix recording row is selected
     pub selected_on_mix_row: bool,
 
+    /// Selected playback track index
+    pub selected_playback_track: usize,
+
+    /// Whether we're in the playback section
+    pub in_playback_section: bool,
+
     /// Whether we're in edit mode
     pub edit_mode: bool,
 
@@ -102,6 +108,8 @@ impl App {
             selected_track: 0,
             selected_column: Column::Arm,
             selected_on_mix_row: false,
+            selected_playback_track: 0,
+            in_playback_section: false,
             edit_mode: false,
             midi_sync_status: MidiSyncStatus::NoDevice,
             tempo: None,
@@ -134,8 +142,19 @@ impl App {
                 _ => {}
             }
         } else {
-            // Navigate to previous track or from mix row to last track
-            if self.selected_on_mix_row {
+            // Navigate between sections: playback -> mix -> tracks
+            if self.in_playback_section {
+                // Move from playback section
+                if self.selected_playback_track > 0 {
+                    // Move to previous playback track
+                    self.selected_playback_track -= 1;
+                } else {
+                    // Move to mix row
+                    self.in_playback_section = false;
+                    self.selected_on_mix_row = true;
+                    self.selected_column = Column::Arm;
+                }
+            } else if self.selected_on_mix_row {
                 // Move from mix row back to last track
                 self.selected_on_mix_row = false;
                 let num_tracks = self.tracks().len();
@@ -143,6 +162,7 @@ impl App {
                     self.selected_track = num_tracks - 1;
                 }
             } else if self.selected_track > 0 {
+                // Move to previous track
                 self.selected_track -= 1;
             }
         }
@@ -157,10 +177,25 @@ impl App {
                 _ => {}
             }
         } else {
-            // Navigate to next track or to mix row
-            if self.selected_on_mix_row {
-                // Already at mix row, can't go further down
+            // Navigate between sections: tracks -> mix -> playback
+            if self.in_playback_section {
+                // Move to next playback track if available
+                let num_playback = self.audio_engine.playback_tracks().len();
+                if self.selected_playback_track < num_playback.saturating_sub(1) {
+                    self.selected_playback_track += 1;
+                }
+            } else if self.selected_on_mix_row {
+                // Move from mix row to playback section if available
+                let num_playback = self.audio_engine.playback_tracks().len();
+                if num_playback > 0 {
+                    self.selected_on_mix_row = false;
+                    self.in_playback_section = true;
+                    self.selected_playback_track = 0;
+                    // Set column to Monitor (first navigable column for playback)
+                    self.selected_column = Column::Monitor;
+                }
             } else {
+                // Navigate to next track or to mix row
                 let num_tracks = self.tracks().len();
                 if self.selected_track < num_tracks - 1 {
                     self.selected_track += 1;
@@ -271,12 +306,35 @@ impl App {
         if self.edit_mode {
             // Exit edit mode
             self.edit_mode = false;
+        } else if self.in_playback_section {
+            // Handle activation on playback tracks
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                match self.selected_column {
+                    Column::Monitor => {
+                        // Toggle monitoring immediately
+                        let current = track.is_monitoring();
+                        track.set_monitoring(!current);
+                    }
+                    Column::Solo => {
+                        // Toggle solo immediately
+                        let current = track.is_solo();
+                        track.set_solo(!current);
+                    }
+                    Column::Level | Column::Pan => {
+                        // Enter edit mode for level and pan
+                        self.edit_mode = true;
+                    }
+                    _ => {}
+                }
+            }
         } else if self.selected_on_mix_row {
             // Toggle mix recording armed state
             let current = self.audio_engine.is_mix_recording_armed();
             self.audio_engine.set_mix_recording_armed(!current);
         } else {
-            // Enter edit mode or toggle arm/monitor
+            // Enter edit mode or toggle arm/monitor (input tracks)
             match self.selected_column {
                 Column::Arm => {
                     let track = self.selected_track();
@@ -351,39 +409,91 @@ impl App {
 
     /// Increase level of selected track
     fn increase_level(&mut self) {
-        let track = self.selected_track();
-        let current = track.get_level();
-        track.set_level((current + 0.05).min(1.0));
+        if self.in_playback_section {
+            // Adjust playback track level
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                let current = track.get_level();
+                track.set_level((current + 0.05).min(1.0));
+            }
+        } else {
+            // Adjust input track level
+            let track = self.selected_track();
+            let current = track.get_level();
+            track.set_level((current + 0.05).min(1.0));
+        }
     }
 
     /// Decrease level of selected track
     fn decrease_level(&mut self) {
-        let track = self.selected_track();
-        let current = track.get_level();
-        track.set_level((current - 0.05).max(0.0));
+        if self.in_playback_section {
+            // Adjust playback track level
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                let current = track.get_level();
+                track.set_level((current - 0.05).max(0.0));
+            }
+        } else {
+            // Adjust input track level
+            let track = self.selected_track();
+            let current = track.get_level();
+            track.set_level((current - 0.05).max(0.0));
+        }
     }
 
     /// Pan left
     fn pan_left(&mut self) {
-        let track = self.selected_track();
-        let current = track.get_pan();
-        // Round to nearest 0.1 to avoid floating point drift
-        let new_pan = ((current - 0.1) * 10.0).round() / 10.0;
-        track.set_pan(new_pan.max(-1.0));
+        if self.in_playback_section {
+            // Adjust playback track pan
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                let current = track.get_pan();
+                // Round to nearest 0.1 to avoid floating point drift
+                let new_pan = ((current - 0.1) * 10.0).round() / 10.0;
+                track.set_pan(new_pan.max(-1.0));
+            }
+        } else {
+            // Adjust input track pan
+            let track = self.selected_track();
+            let current = track.get_pan();
+            // Round to nearest 0.1 to avoid floating point drift
+            let new_pan = ((current - 0.1) * 10.0).round() / 10.0;
+            track.set_pan(new_pan.max(-1.0));
+        }
     }
 
     /// Pan right
     fn pan_right(&mut self) {
-        let track = self.selected_track();
-        let current = track.get_pan();
-        // Round to nearest 0.1 to avoid floating point drift
-        let new_pan = ((current + 0.1) * 10.0).round() / 10.0;
-        track.set_pan(new_pan.min(1.0));
+        if self.in_playback_section {
+            // Adjust playback track pan
+            let playback_tracks = self.audio_engine.playback_tracks();
+            if self.selected_playback_track < playback_tracks.len() {
+                let track = &playback_tracks[self.selected_playback_track];
+                let current = track.get_pan();
+                // Round to nearest 0.1 to avoid floating point drift
+                let new_pan = ((current + 0.1) * 10.0).round() / 10.0;
+                track.set_pan(new_pan.min(1.0));
+            }
+        } else {
+            // Adjust input track pan
+            let track = self.selected_track();
+            let current = track.get_pan();
+            // Round to nearest 0.1 to avoid floating point drift
+            let new_pan = ((current + 0.1) * 10.0).round() / 10.0;
+            track.set_pan(new_pan.min(1.0));
+        }
     }
 
     /// Update peak meters (decay)
     pub fn update_meters(&mut self) {
         for track in self.tracks().iter() {
+            track.decay_peak_level(self.meter_decay);
+        }
+        // Decay playback track peak levels
+        for track in self.audio_engine.playback_tracks().iter() {
             track.decay_peak_level(self.meter_decay);
         }
     }

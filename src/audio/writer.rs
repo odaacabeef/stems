@@ -72,9 +72,13 @@ impl FileWriter {
     }
 
     /// Stop the file writer thread and wait for it to finish
-    pub fn stop(&mut self) -> Result<()> {
+    /// Signal the writer thread to stop (non-blocking - just sets flag)
+    pub fn stop_async(&mut self) {
         self.running.store(false, Ordering::Relaxed);
+    }
 
+    /// Wait for the writer thread to finish and restore consumer (blocking)
+    pub fn join(&mut self) -> Result<()> {
         if let Some(handle) = self.thread_handle.take() {
             let consumer = handle
                 .join()
@@ -85,6 +89,11 @@ impl FileWriter {
         }
 
         Ok(())
+    }
+
+    pub fn stop(&mut self) -> Result<()> {
+        self.stop_async();
+        self.join()
     }
 
     /// Check if the writer is running
