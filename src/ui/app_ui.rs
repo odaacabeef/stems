@@ -79,15 +79,15 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
         let mut constraints = vec![
             Constraint::Length(num_tracks), // Track table (exact size)
             Constraint::Length(1),          // Blank line
-            Constraint::Length(1),          // Mix recording row
         ];
 
         // Add playback section if there are playback tracks
         if num_playback > 0 {
-            constraints.push(Constraint::Length(1)); // Blank line
             constraints.push(Constraint::Length(num_playback)); // Playback tracks
+            constraints.push(Constraint::Length(1)); // Blank line
         }
 
+        constraints.push(Constraint::Length(1)); // Mix recording row
         constraints.push(Constraint::Min(0)); // Remaining empty space
 
         let track_area_chunks = Layout::default()
@@ -95,7 +95,7 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
             .constraints(constraints)
             .split(track_area);
 
-        // Render track list (skip chunk[2] which is line break)
+        // Render track list (skip chunk[1] which is line break)
         // If on mix row or playback section, pass invalid index so no track appears selected
         let selected_track_index = if app.selected_on_mix_row || app.in_playback_section {
             usize::MAX
@@ -111,21 +111,23 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
             app.edit_mode,
         );
 
-        // Render mix recording row (skip chunk[1] which is blank line)
-        render_mix_recording_row(frame, track_area_chunks[2], app);
-
         // Render playback section if present
         if num_playback > 0 {
-            // Render playback tracks (chunk[4] - chunk[3] is the blank line)
+            // Render playback tracks (chunk[2])
             render_playback_list(
                 frame,
-                track_area_chunks[4],
+                track_area_chunks[2],
                 app.audio_engine.playback_tracks(),
                 app.selected_playback_track,
                 app.selected_column,
                 app.edit_mode,
                 app.in_playback_section,
             );
+            // Render mix recording row after playback (chunk[4] - chunk[3] is the blank line)
+            render_mix_recording_row(frame, track_area_chunks[4], app);
+        } else {
+            // Render mix recording row directly after tracks (chunk[2])
+            render_mix_recording_row(frame, track_area_chunks[2], app);
         }
     } else {
         // Split track list area vertically for track table, blank line, mix row, playback section, and remaining space
@@ -136,15 +138,15 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
         let mut constraints = vec![
             Constraint::Length(num_tracks), // Track table (exact size)
             Constraint::Length(1),          // Blank line
-            Constraint::Length(1),          // Mix recording row
         ];
 
         // Add playback section if there are playback tracks
         if num_playback > 0 {
-            constraints.push(Constraint::Length(1)); // Blank line
             constraints.push(Constraint::Length(num_playback)); // Playback tracks
+            constraints.push(Constraint::Length(1)); // Blank line
         }
 
+        constraints.push(Constraint::Length(1)); // Mix recording row
         constraints.push(Constraint::Min(0)); // Remaining empty space
 
         let track_area_chunks = Layout::default()
@@ -152,7 +154,7 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
             .constraints(constraints)
             .split(track_area);
 
-        // Render track list (skip chunk[2] which is line break)
+        // Render track list (skip chunk[1] which is line break)
         // If on mix row or playback section, pass invalid index so no track appears selected
         let selected_track_index = if app.selected_on_mix_row || app.in_playback_section {
             usize::MAX
@@ -168,21 +170,23 @@ pub fn render_ui(frame: &mut Frame, app: &App) {
             app.edit_mode,
         );
 
-        // Render mix recording row (skip chunk[1] which is blank line)
-        render_mix_recording_row(frame, track_area_chunks[2], app);
-
         // Render playback section if present
         if num_playback > 0 {
-            // Render playback tracks (chunk[4] - chunk[3] is the blank line)
+            // Render playback tracks (chunk[2])
             render_playback_list(
                 frame,
-                track_area_chunks[4],
+                track_area_chunks[2],
                 app.audio_engine.playback_tracks(),
                 app.selected_playback_track,
                 app.selected_column,
                 app.edit_mode,
                 app.in_playback_section,
             );
+            // Render mix recording row after playback (chunk[4] - chunk[3] is the blank line)
+            render_mix_recording_row(frame, track_area_chunks[4], app);
+        } else {
+            // Render mix recording row directly after tracks (chunk[2])
+            render_mix_recording_row(frame, track_area_chunks[2], app);
         }
     }
 }

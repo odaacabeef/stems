@@ -192,14 +192,18 @@ pub fn process_audio_input(
         let _ = playback_producer.push(playback_left);
         let _ = playback_producer.push(playback_right);
 
-        // Send mixed output to monitor (stereo)
-        let _ = monitor_producer.push(monitor_left);
-        let _ = monitor_producer.push(monitor_right);
+        // Combine input tracks and playback for monitor output
+        let mixed_left = monitor_left + playback_left;
+        let mixed_right = monitor_right + playback_right;
+
+        // Send combined output to monitor (stereo)
+        let _ = monitor_producer.push(mixed_left);
+        let _ = monitor_producer.push(mixed_right);
 
         // If recording and mix recording is armed, send to mix recording buffer
         if is_recording && mix_recording_armed.load(Ordering::Relaxed) {
-            let _ = mix_recording_producer.push(monitor_left);
-            let _ = mix_recording_producer.push(monitor_right);
+            let _ = mix_recording_producer.push(mixed_left);
+            let _ = mix_recording_producer.push(mixed_right);
         }
     }
 
