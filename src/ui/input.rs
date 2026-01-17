@@ -64,7 +64,7 @@ fn handle_key_event(app: &mut App, key: KeyEvent) {
         }
 
         // Arm all / Disarm all
-        KeyCode::Char('R') => {
+        KeyCode::Char('A') => {
             // Check if any tracks are armed
             let any_armed = app.tracks().iter().any(|t| t.is_armed());
 

@@ -35,7 +35,7 @@ pub fn render_track_list(
                 if track.is_recording() {
                     "[●]"
                 } else {
-                    "[R]"
+                    "[A]"
                 }
             } else {
                 "[ ]"
@@ -196,7 +196,7 @@ pub fn render_mix_recording_row(
     let arm_status = if is_recording {
         "[●]"
     } else if is_armed {
-        "[R]"
+        "[A]"
     } else {
         "[ ]"
     };
