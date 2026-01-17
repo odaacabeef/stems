@@ -7,9 +7,6 @@ use crate::types::AtomicF32;
 /// Represents a playback track for audio file playback
 #[derive(Debug)]
 pub struct PlaybackTrack {
-    /// Track name (filename without extension)
-    pub name: String,
-
     /// Audio samples loaded into memory (interleaved for stereo)
     pub samples: Vec<f32>,
 
@@ -98,15 +95,7 @@ impl PlaybackTrack {
             }
         };
 
-        // Extract filename without extension for display
-        let name = filepath
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-
         Ok(Self {
-            name,
             samples,
             channels: spec.channels,
             sample_rate: spec.sample_rate,
@@ -220,7 +209,6 @@ mod tests {
     #[test]
     fn test_playback_track_num_frames() {
         let track = PlaybackTrack {
-            name: "test".to_string(),
             samples: vec![0.0; 960], // 480 frames for stereo
             channels: 2,
             sample_rate: 48000,
@@ -238,7 +226,6 @@ mod tests {
     #[test]
     fn test_level_clamping() {
         let track = PlaybackTrack {
-            name: "test".to_string(),
             samples: vec![],
             channels: 1,
             sample_rate: 48000,
@@ -259,7 +246,6 @@ mod tests {
     #[test]
     fn test_pan_clamping() {
         let track = PlaybackTrack {
-            name: "test".to_string(),
             samples: vec![],
             channels: 1,
             sample_rate: 48000,
@@ -280,7 +266,6 @@ mod tests {
     #[test]
     fn test_pan_gains() {
         let track = PlaybackTrack {
-            name: "test".to_string(),
             samples: vec![],
             channels: 1,
             sample_rate: 48000,

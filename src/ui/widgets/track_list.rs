@@ -278,9 +278,6 @@ pub fn render_playback_list(
             let peak = track.get_peak_level();
             let meter_str = create_meter_string(peak, 20);
 
-            // Filename next to meter
-            let meter_and_name = format!("{} {}", meter_str, track.name);
-
             // Helper to create cell style for selected cells
             let cell_style = |column: Column| {
                 if is_selected && selected_column == column {
@@ -302,9 +299,12 @@ pub fn render_playback_list(
                 }
             };
 
+            // Track number (1-indexed)
+            let track_number = format!("{:2}", i + 1);
+
             Row::new(vec![
                 Cell::from("  "), // Left padding
-                Cell::from("  "), // Skip track number column
+                Cell::from(track_number),
                 Cell::from("   "), // Skip arm column
                 Cell::from(mon_status).style(
                     if is_selected && selected_column == Column::Monitor {
@@ -322,7 +322,7 @@ pub fn render_playback_list(
                 ),
                 Cell::from(level_str).style(cell_style(Column::Level)),
                 Cell::from(pan_str).style(cell_style(Column::Pan)),
-                Cell::from(meter_and_name),
+                Cell::from(meter_str),
             ])
         })
         .collect();
