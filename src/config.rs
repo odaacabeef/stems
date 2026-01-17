@@ -11,10 +11,10 @@ pub struct Config {
     pub devices: DeviceConfig,
 
     #[serde(default)]
-    pub tracks: HashMap<usize, TrackConfig>,
+    pub inputs: HashMap<usize, TrackConfig>,
 
     #[serde(default)]
-    pub audio: Vec<AudioFileConfig>,
+    pub playback: Vec<AudioFileConfig>,
 }
 
 /// Device configuration
@@ -83,16 +83,16 @@ impl Config {
             validate_monitor_channels(monitorch)?;
         }
 
-        // Validate track configurations
-        for (track_num, track_config) in &self.tracks {
+        // Validate input track configurations
+        for (track_num, track_config) in &self.inputs {
             if *track_num < 1 {
-                anyhow::bail!("Track number must be >= 1, got {}", track_num);
+                anyhow::bail!("Input track number must be >= 1, got {}", track_num);
             }
 
             if let Some(level) = track_config.level {
                 if !(0.0..=1.0).contains(&level) {
                     anyhow::bail!(
-                        "Track {} level must be between 0.0 and 1.0, got {}",
+                        "Input track {} level must be between 0.0 and 1.0, got {}",
                         track_num,
                         level
                     );
@@ -102,7 +102,7 @@ impl Config {
             if let Some(pan) = track_config.pan {
                 if !(-1.0..=1.0).contains(&pan) {
                     anyhow::bail!(
-                        "Track {} pan must be between -1.0 and 1.0, got {}",
+                        "Input track {} pan must be between -1.0 and 1.0, got {}",
                         track_num,
                         pan
                     );
@@ -110,30 +110,30 @@ impl Config {
             }
         }
 
-        // Validate audio playback configurations
-        for audio_config in &self.audio {
+        // Validate playback configurations
+        for playback_config in &self.playback {
             // Validate file exists
-            if !Path::new(&audio_config.file).exists() {
-                anyhow::bail!("Audio file not found: {}", audio_config.file);
+            if !Path::new(&playback_config.file).exists() {
+                anyhow::bail!("Playback file not found: {}", playback_config.file);
             }
 
             // Validate level
-            if let Some(level) = audio_config.level {
+            if let Some(level) = playback_config.level {
                 if !(0.0..=1.0).contains(&level) {
                     anyhow::bail!(
-                        "Audio file '{}' level must be between 0.0 and 1.0, got {}",
-                        audio_config.file,
+                        "Playback file '{}' level must be between 0.0 and 1.0, got {}",
+                        playback_config.file,
                         level
                     );
                 }
             }
 
             // Validate pan
-            if let Some(pan) = audio_config.pan {
+            if let Some(pan) = playback_config.pan {
                 if !(-1.0..=1.0).contains(&pan) {
                     anyhow::bail!(
-                        "Audio file '{}' pan must be between -1.0 and 1.0, got {}",
-                        audio_config.file,
+                        "Playback file '{}' pan must be between -1.0 and 1.0, got {}",
+                        playback_config.file,
                         pan
                     );
                 }
@@ -148,8 +148,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             devices: DeviceConfig::default(),
-            tracks: HashMap::new(),
-            audio: Vec::new(),
+            inputs: HashMap::new(),
+            playback: Vec::new(),
         }
     }
 }

@@ -129,18 +129,18 @@ fn load_config(config_path: &str) -> Result<Config> {
     Config::from_file(path)
 }
 
-/// Apply track configuration from config file to audio engine tracks
+/// Apply input track configuration from config file to audio engine tracks
 fn apply_track_config(audio_engine: &audio::AudioEngine, config: &Config) -> Result<()> {
     let tracks = audio_engine.tracks();
 
-    for (track_num, track_config) in &config.tracks {
+    for (track_num, track_config) in &config.inputs {
         // Convert 1-based track number to 0-based index
         let track_index = track_num.saturating_sub(1);
 
         // Validate track exists
         if track_index >= tracks.len() {
             anyhow::bail!(
-                "Track {} does not exist (device has {} channels)",
+                "Input track {} does not exist (device has {} channels)",
                 track_num,
                 tracks.len()
             );
@@ -177,23 +177,23 @@ fn apply_track_config(audio_engine: &audio::AudioEngine, config: &Config) -> Res
 fn load_playback_tracks(config: &Config, sample_rate: u32) -> Result<Vec<audio::PlaybackTrack>> {
     let mut playback_tracks = Vec::new();
 
-    for audio_config in &config.audio {
-        let filepath = std::path::Path::new(&audio_config.file);
+    for playback_config in &config.playback {
+        let filepath = std::path::Path::new(&playback_config.file);
 
         // Load the WAV file
         let track = audio::PlaybackTrack::load_wav_file(filepath, sample_rate)?;
 
         // Apply configuration
-        if let Some(monitor) = audio_config.monitor {
+        if let Some(monitor) = playback_config.monitor {
             track.set_monitoring(monitor);
         }
-        if let Some(solo) = audio_config.solo {
+        if let Some(solo) = playback_config.solo {
             track.set_solo(solo);
         }
-        if let Some(level) = audio_config.level {
+        if let Some(level) = playback_config.level {
             track.set_level(level);
         }
-        if let Some(pan) = audio_config.pan {
+        if let Some(pan) = playback_config.pan {
             track.set_pan(pan);
         }
 

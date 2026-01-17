@@ -24,7 +24,7 @@ devices:
 # Input track configuration (optional)
 # Only configure tracks you want to customize
 # Track numbers are 1-based and match the UI display
-tracks:
+inputs:
   1:
     arm: false        # Armed for recording (default: false)
     monitor: true     # Heard in monitor output (default: false)
@@ -57,13 +57,13 @@ tracks:
     monitor: true
     level: 0.7
 
-# Audio file playback (optional)
+# Playback track configuration (optional)
 # Files are pre-loaded into memory at startup
 # Must be 48kHz WAV files (mono or stereo)
 # Files loop continuously during playback
 # Uncomment the section below to enable audio playback:
 #
-# audio:
+# playback:
 #   # Backing track or previous recording to play along with
 #   - file: backing-track.wav     # Path relative to working directory
 #     monitor: true               # Hear this file (default: true)
