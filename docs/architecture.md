@@ -9,6 +9,11 @@ for routing audio from virtual loopback devices (like
 interfaces. In addition to recording individual tracks, stems can also record
 the monitored stereo mix to a single file.
 
+Stems also supports **audio file playback** during recording sessions. Pre-loaded
+WAV files play back in sync with MIDI transport, allowing you to record along with
+existing audio (e.g., backing tracks, click tracks). Playback audio is mixed into
+both the monitor output and the recorded mix.
+
 This doc uses BlackHole 16ch and
 [ES-9](https://www.expert-sleepers.co.uk/es9.html) as an example, but the
 concepts apply to any single or aggregate device configuration.
@@ -146,7 +151,38 @@ Stems works best with macOS **Aggregate Devices** that combine:
 - **Format:** Stereo 32-bit Float WAV @ 48000 Hz
 - **Filename:** `mix-{timestamp}.wav`
 
-### 8. Monitor Output with Channel Routing
+### 8. Audio Playback System
+
+Stems can play back pre-loaded WAV files during recording:
+
+**File Loading:**
+- WAV files configured in `stems.yaml` under `audio:` section
+- Files are loaded into memory at startup (no disk I/O during playback)
+- Must be 48kHz sample rate (same as recording)
+- Supports mono and stereo files
+
+**Playback Integration:**
+- Playback tracks have individual monitor, solo, level, and pan controls
+- Audio is mixed into the input callback's monitor output
+- Playback audio is included in the monitored mix recording
+- Playback position advances frame-by-frame during playback
+- Files loop continuously when they reach the end
+
+**MIDI Control:**
+- Playback starts with MIDI Start message
+- Playback stops with MIDI Stop message
+- Synchronized with recording transport
+
+**CoreAudio Direct Integration (macOS):**
+For low-latency playback with immediate stop capability, stems uses a custom
+CoreAudio FFI layer (`src/audio/coreaudio_playback_ffi.m`):
+- Direct AudioUnit API access bypasses cpal's buffering limitations
+- Audio unit runs continuously (never stopped during normal operation)
+- Start/stop controlled by atomic flags for ~1-2ms latency
+- Allows device selection for routing to aggregate devices
+- Compiled into the binary via `build.rs`
+
+### 9. Monitor Output with Channel Routing
 
 The output callback routes the stereo monitor mix to specific output channels:
 
@@ -259,8 +295,11 @@ For aggregate devices, the **Clock Source** device (typically the physical inter
 - Device configuration: `src/audio/device.rs`
 - Track file writer: `src/audio/writer.rs`
 - Mix file writer: `src/audio/mix_writer.rs`
+- Playback track: `src/audio/playback.rs`
+- CoreAudio FFI: `src/audio/coreaudio_playback_ffi.m`, `src/audio/coreaudio_playback_ffi.h`, `src/audio/coreaudio_playback.rs`
 - CLI argument parsing: `src/main.rs`
 - Track management: `src/audio/track.rs`
+- Build configuration: `build.rs`
 
 ## Notes
 

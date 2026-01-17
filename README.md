@@ -5,16 +5,14 @@ Terminal-based multi-track audio recorder with MIDI clock sync.
 ## Features
 
 - **Multi-track recording** - One track per input channel (supports 32+ channels)
-- **Mix recording** - Record the monitored stereo mix to a single file
-- **MIDI clock sync** - Recording starts on first clock pulse after MIDI Start
+- **Audio file playback** - Play back WAV files during recording (e.g., backing tracks, click tracks)
+- **Mix recording** - Record the monitored stereo mix to a single file (includes playback audio)
+- **MIDI clock sync** - Recording and playback start on first clock pulse after MIDI Start
 - **Real-time monitoring** - Low-latency monitoring with configurable routing
 - **Aggregate device support** - Route audio from virtual devices to physical interfaces
 - **Lock-free audio** - Real-time safe audio callbacks (atomics + ring buffers, no mutexes)
-- **Per-track control** - Individual arm/monitor/solo/level/pan for each track
-
-**Note:** stems is a recorder only. It does not provide playback or arrangement
-features. Import the recorded WAV files into your DAW or audio editor for mixing
-and arrangement.
+- **Per-track control** - Individual monitor/solo/level/pan for input and playback tracks
+- **Direct CoreAudio integration** (macOS) - Custom FFI layer for immediate playback start/stop (~1-2ms latency)
 
 ## Usage
 
@@ -58,6 +56,16 @@ tracks:
     pan: 0.5
   10:
     monitor: true
+
+audio:                             # Optional: audio file playback
+  - file: backing-track.wav        # Path to WAV file (48kHz required)
+    monitor: true                  # Whether to hear this file
+    solo: false                    # Solo this playback track
+    level: 0.8                     # Playback volume (0.0 - 1.0)
+    pan: 0.0                       # Pan position (-1.0 to 1.0)
+  - file: click.wav
+    monitor: true
+    level: 0.5
 ```
 
 ### Command Line Flags
@@ -90,6 +98,26 @@ Configure individual tracks by track number (1-based, matching the UI):
 
 Only specified tracks are configured; others use defaults (all false except level=1.0, pan=0.0).
 
+### Audio Playback Configuration
+
+Configure WAV files to play back during recording:
+
+- **file** - Path to WAV file (absolute or relative to working directory)
+  - Must be 48kHz sample rate (same as recording)
+  - Supports mono and stereo files
+  - Files are pre-loaded into memory at startup
+- **monitor** - Whether to hear this file (boolean, default: true)
+- **solo** - Whether to solo this file (boolean, default: false)
+- **level** - Playback volume, 0.0 to 1.0 (float, default: 1.0)
+- **pan** - Pan position, -1.0 (left) to 1.0 (right) (float, default: 0.0)
+
+Playback tracks:
+- Start/stop with MIDI transport (synchronized with recording)
+- Loop continuously when they reach the end
+- Are mixed into monitor output and included in mix recording
+- Can be controlled individually (monitor, solo, level, pan)
+- Are numbered starting from 1 in the UI
+
 ## Interface
 
 ![screenshot](docs/screenshot.png)
@@ -97,17 +125,20 @@ Only specified tracks are configured; others use defaults (all false except leve
 ### Commands
 
 ```
-j/k, ↑/↓  = Navigate tracks (including mix recording row)
+j/k, ↑/↓  = Navigate tracks (input tracks → playback tracks → mix recording row)
 
-h/l, ←/→  = Navigate columns (Arm/Monitor/Solo/Level/Pan)
+h/l, ←/→  = Navigate columns
+            Input tracks: Arm/Monitor/Solo/Level/Pan
+            Playback tracks: Monitor/Solo/Level/Pan
+            Mix row: Arm only
 
 Space     = Toggle arm/monitor or edit level/pan
 
-R         = Toggle arm for all tracks
+R         = Toggle arm for all input tracks
 
-M         = Toggle monitoring for all tracks
+M         = Toggle monitoring for all tracks (input + playback)
 
-S         = Toggle solo for all tracks
+S         = Toggle solo for all tracks (input + playback)
 
 g/G       = Jump to first track / mix recording row
 
@@ -142,7 +173,10 @@ For detailed architecture information, see [docs/architecture.md](docs/architect
 ## Technical Notes
 
 - One track is created for each input channel of the selected device
-- Monitoring mixes all monitored tracks into stereo and routes to specified output channels
-- Solo mode: When any track has solo enabled, only soloed tracks are heard in the monitor output and included in the mix recording
-- MIDI clock-based recording waits for first clock pulse after MIDI Start message
+- Monitoring mixes all monitored tracks (input + playback) into stereo and routes to specified output channels
+- Solo mode: When any track (input or playback) has solo enabled, only soloed tracks are heard in the monitor output and included in the mix recording
+- MIDI clock-based recording and playback wait for first clock pulse after MIDI Start message
+- Playback files are pre-loaded into memory at startup (no disk I/O during playback)
+- Playback uses direct CoreAudio integration on macOS for ~1-2ms start/stop latency
 - Sample rate automatically selected at 48000 Hz if supported by device
+- Mix recording includes both input tracks and playback audio
