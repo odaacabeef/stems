@@ -156,7 +156,7 @@ Stems works best with macOS **Aggregate Devices** that combine:
 Stems can play back pre-loaded WAV files during recording:
 
 **File Loading:**
-- WAV files configured in `stems.yaml` under `audio:` section
+- WAV files configured in `stems.yaml` under `playback:` section
 - Files are loaded into memory at startup (no disk I/O during playback)
 - Must be 48kHz sample rate (same as recording)
 - Supports mono and stereo files
@@ -184,73 +184,15 @@ CoreAudio FFI layer (`src/audio/coreaudio_playback_ffi.m`):
 
 ### 9. Monitor Output with Channel Routing
 
-The output callback routes the stereo monitor mix to specific output channels:
+The output callback routes the stereo monitor mix to specific output channels. For each frame:
+- Place left sample in monitor_start channel
+- Place right sample in monitor_end channel
+- Fill all other output channels with silence (prevents noise from uninitialized buffer data)
 
-```rust
-// For aggregate device with BlackHole (ch 1-16) + ES-9 (ch 17-32):
-// Monitor channels 17-18 routes audio to ES-9 outputs
-
-for each frame:
-    - Fill all output channels with silence (0.0)
-    - Place left sample in monitor_start channel
-    - Place right sample in monitor_end channel
-```
-
-**Example:** With `--monitor-channels 17-18`:
+**Example:** With `monitorch: "17-18"` in config:
 - Channels 1-16 (BlackHole outputs): Silence
 - Channels 17-18 (ES-9 L+R outputs): Monitor audio
 - Channels 19-32 (remaining ES-9 outputs): Silence
-
-## Command Line Usage
-
-### Basic Usage
-
-```bash
-# Single device (uses channels 1-2 for monitoring)
-stems --audio-device "ES-9" --midi-device mc-source-b
-
-# Aggregate device with monitor routing
-stems --audio-device "BlackHole + ES-9" \
-      --monitor-channels 17-18 \
-      --midi-device mc-source-b
-```
-
-### Flags
-
-- `--audio-device <name>` - Audio device for both input and output (ensures single clock domain)
-- `--monitor-channels <START-END>` - Output channels for monitoring (e.g., `17-18`, `1-2`)
-  - Must be exactly 2 channels (stereo)
-  - 1-indexed (channel 1 is the first channel)
-  - Defaults to `1-2` if not specified
-- `--midi-device <name>` - MIDI device for transport control
-- `--list-devices` - Show all available audio and MIDI devices
-
-### Example Setup
-
-**Scenario:** Record audio from a synthesizer application (the-synth) while monitoring through ES-9
-
-1. **Create aggregate device** in Audio MIDI Setup:
-   - Name: "BlackHole + ES-9"
-   - Devices: BlackHole 16ch (first), ES-9 (second)
-   - Clock Source: ES-9
-
-2. **Configure the-synth:**
-   - Output device: BlackHole 16ch
-   - Output channels: 1-2 (or any channels you want)
-
-3. **Run stems:**
-   ```bash
-   stems --audio-device "BlackHole + ES-9" \
-         --monitor-channels 17-18 \
-         --midi-device mc-source-b
-   ```
-
-4. **Audio flow:**
-   - the-synth → BlackHole channels 1-2
-   - stems reads from BlackHole channels 1-2 (aggregate inputs 1-2)
-   - stems records to WAV files
-   - stems monitors to ES-9 channels 1-2 (aggregate outputs 17-18)
-   - You hear audio through ES-9!
 
 ## Implementation Details
 
@@ -280,7 +222,7 @@ stems --audio-device "BlackHole + ES-9" \
 
 ### Single Clock Domain
 
-When `--audio-device` is specified, **both** input and output use the same device:
+When `devices.audio` is specified in the config, **both** input and output use the same device:
 - ✅ No clock drift between devices
 - ✅ No sample rate conversion needed
 - ✅ No buffer underruns/overruns
@@ -288,25 +230,12 @@ When `--audio-device` is specified, **both** input and output use the same devic
 
 For aggregate devices, the **Clock Source** device (typically the physical interface) provides the master clock that all sub-devices sync to.
 
-## File References
-
-- Audio engine: `src/audio/engine.rs`
-- Audio callbacks: `src/audio/callback.rs`
-- Device configuration: `src/audio/device.rs`
-- Track file writer: `src/audio/writer.rs`
-- Mix file writer: `src/audio/mix_writer.rs`
-- Playback track: `src/audio/playback.rs`
-- CoreAudio FFI: `src/audio/coreaudio_playback_ffi.m`, `src/audio/coreaudio_playback_ffi.h`, `src/audio/coreaudio_playback.rs`
-- CLI argument parsing: `src/main.rs`
-- Track management: `src/audio/track.rs`
-- Build configuration: `build.rs`
-
 ## Notes
 
 - **Recording to disk** uses large buffer (10 seconds) and is not timing-critical
 - **Mix recording** uses 5-second buffer and records the same stereo mix sent to monitor output
 - **Monitor output** is real-time with small buffer (50ms) - sensitive to timing
-- The `--audio-device` flag applies to **both input and output** for single clock domain
+- The `devices.audio` config setting applies to **both input and output** for single clock domain
 - Aggregate devices must have sub-devices enabled in Audio MIDI Setup
 - Virtual devices (like BlackHole) have no physical clock and sync to the Clock Source
 - Mix recording is optional and controlled via the UI checkbox below the track list

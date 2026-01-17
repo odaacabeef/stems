@@ -6,15 +6,11 @@ Terminal-based multi-track audio recorder with MIDI clock sync.
 
 ## Features
 
-- **Multi-track recording** - One track per input channel (supports 32+ channels)
-- **Audio file playback** - Play back WAV files during recording (e.g., backing tracks, click tracks)
-- **Mix recording** - Record the monitored stereo mix to a single file (includes playback audio)
+- **Multi-track recording** - One track per input channel
+- **Audio file playback** - Play back WAV files during recording
+- **Mix recording** - Record the monitored stereo mix to a single file
 - **MIDI clock sync** - Recording and playback start on first clock pulse after MIDI Start
 - **Real-time monitoring** - Low-latency monitoring with configurable routing
-- **Aggregate device support** - Route audio from virtual devices to physical interfaces
-- **Lock-free audio** - Real-time safe audio callbacks (atomics + ring buffers, no mutexes)
-- **Per-track control** - Individual monitor/solo/level/pan for input and playback tracks
-- **Direct CoreAudio integration** (macOS) - Custom FFI layer for immediate playback start/stop (~1-2ms latency)
 
 ## Usage
 
@@ -47,7 +43,7 @@ devices:
   monitorch: "17-18"               # Monitor output channels (1-indexed)
   midiin: "mc-source-b"           # MIDI input device name or index
 
-tracks:
+inputs:
   1:                               # Track number (1-based)
     arm: false
     monitor: true
@@ -61,7 +57,7 @@ tracks:
   10:
     monitor: true
 
-audio:                             # Optional: audio file playback
+playback:                          # Optional: audio file playback
   - file: backing-track.wav        # Path to WAV file (48kHz required)
     monitor: true                  # Whether to hear this file
     solo: false                    # Solo this playback track
@@ -90,9 +86,9 @@ audio:                             # Optional: audio file playback
   - Use device index or name substring
   - Omit to use first available MIDI device (if any)
 
-### Track Configuration
+### Input Track Configuration
 
-Configure individual tracks by track number (1-based, matching the UI):
+Configure individual input tracks by track number (1-based, matching the UI):
 
 - **arm** - Whether track is armed for recording (boolean)
 - **monitor** - Whether track is monitored (heard in output) (boolean)
@@ -102,7 +98,7 @@ Configure individual tracks by track number (1-based, matching the UI):
 
 Only specified tracks are configured; others use defaults (all false except level=1.0, pan=0.0).
 
-### Audio Playback Configuration
+### Playback Track Configuration
 
 Configure WAV files to play back during recording:
 
