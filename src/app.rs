@@ -142,24 +142,38 @@ impl App {
                 _ => {}
             }
         } else {
-            // Navigate between sections: playback -> mix -> tracks
-            if self.in_playback_section {
+            // Navigate between sections: mix -> playback -> tracks (reverse order)
+            if self.selected_on_mix_row {
+                // Move from mix row to playback or tracks
+                let num_playback = self.audio_engine.playback_tracks().len();
+                if num_playback > 0 {
+                    // Move to last playback track, go to Monitor column
+                    self.selected_on_mix_row = false;
+                    self.in_playback_section = true;
+                    self.selected_playback_track = num_playback - 1;
+                    self.selected_column = Column::Monitor;
+                } else {
+                    // No playback tracks, move to last input track
+                    // Keep Arm column when going back to input tracks
+                    self.selected_on_mix_row = false;
+                    let num_tracks = self.tracks().len();
+                    if num_tracks > 0 {
+                        self.selected_track = num_tracks - 1;
+                    }
+                }
+            } else if self.in_playback_section {
                 // Move from playback section
                 if self.selected_playback_track > 0 {
                     // Move to previous playback track
                     self.selected_playback_track -= 1;
                 } else {
-                    // Move to mix row
+                    // Move to last input track
+                    // Column stays the same (Monitor/Solo/Level/Pan all exist in input tracks)
                     self.in_playback_section = false;
-                    self.selected_on_mix_row = true;
-                    self.selected_column = Column::Arm;
-                }
-            } else if self.selected_on_mix_row {
-                // Move from mix row back to last track
-                self.selected_on_mix_row = false;
-                let num_tracks = self.tracks().len();
-                if num_tracks > 0 {
-                    self.selected_track = num_tracks - 1;
+                    let num_tracks = self.tracks().len();
+                    if num_tracks > 0 {
+                        self.selected_track = num_tracks - 1;
+                    }
                 }
             } else if self.selected_track > 0 {
                 // Move to previous track
@@ -177,32 +191,38 @@ impl App {
                 _ => {}
             }
         } else {
-            // Navigate between sections: tracks -> mix -> playback
-            if self.in_playback_section {
-                // Move to next playback track if available
+            // Navigate between sections: tracks -> playback -> mix
+            if self.selected_on_mix_row {
+                // At mix row, can't go further down
+            } else if self.in_playback_section {
+                // Move to next playback track or to mix row
                 let num_playback = self.audio_engine.playback_tracks().len();
                 if self.selected_playback_track < num_playback.saturating_sub(1) {
                     self.selected_playback_track += 1;
-                }
-            } else if self.selected_on_mix_row {
-                // Move from mix row to playback section if available
-                let num_playback = self.audio_engine.playback_tracks().len();
-                if num_playback > 0 {
-                    self.selected_on_mix_row = false;
-                    self.in_playback_section = true;
-                    self.selected_playback_track = 0;
-                    // Set column to Monitor (first navigable column for playback)
-                    self.selected_column = Column::Monitor;
+                } else {
+                    // At last playback track, move to mix row
+                    self.in_playback_section = false;
+                    self.selected_on_mix_row = true;
+                    self.selected_column = Column::Arm;
                 }
             } else {
-                // Navigate to next track or to mix row
+                // Navigate to next track, playback section, or mix row
                 let num_tracks = self.tracks().len();
+                let num_playback = self.audio_engine.playback_tracks().len();
+
                 if self.selected_track < num_tracks - 1 {
                     self.selected_track += 1;
+                } else if num_playback > 0 {
+                    // At last track, move to playback section
+                    // Map column: Arm -> Monitor, others stay the same
+                    if self.selected_column == Column::Arm {
+                        self.selected_column = Column::Monitor;
+                    }
+                    self.in_playback_section = true;
+                    self.selected_playback_track = 0;
                 } else {
-                    // At last track, move to mix row
+                    // No playback tracks, move directly to mix row
                     self.selected_on_mix_row = true;
-                    // Set column to Arm for mix row
                     self.selected_column = Column::Arm;
                 }
             }
@@ -217,11 +237,25 @@ impl App {
                 self.pan_left();
             }
         } else {
-            // Navigate to previous column
-            let columns = Column::all();
-            if let Some(idx) = columns.iter().position(|c| c == &self.selected_column) {
-                if idx > 0 {
-                    self.selected_column = columns[idx - 1];
+            // Navigate to previous column based on current section
+            if self.selected_on_mix_row {
+                // Mix row only has Arm column, no left/right movement
+            } else if self.in_playback_section {
+                // Playback tracks: Monitor, Solo, Level, Pan
+                match self.selected_column {
+                    Column::Arm => {} // Should never be on Arm in playback
+                    Column::Monitor => {} // Already at leftmost
+                    Column::Solo => self.selected_column = Column::Monitor,
+                    Column::Level => self.selected_column = Column::Solo,
+                    Column::Pan => self.selected_column = Column::Level,
+                }
+            } else {
+                // Input tracks: Arm, Monitor, Solo, Level, Pan
+                let columns = Column::all();
+                if let Some(idx) = columns.iter().position(|c| c == &self.selected_column) {
+                    if idx > 0 {
+                        self.selected_column = columns[idx - 1];
+                    }
                 }
             }
         }
@@ -235,11 +269,25 @@ impl App {
                 self.pan_right();
             }
         } else {
-            // Navigate to next column
-            let columns = Column::all();
-            if let Some(idx) = columns.iter().position(|c| c == &self.selected_column) {
-                if idx < columns.len() - 1 {
-                    self.selected_column = columns[idx + 1];
+            // Navigate to next column based on current section
+            if self.selected_on_mix_row {
+                // Mix row only has Arm column, no left/right movement
+            } else if self.in_playback_section {
+                // Playback tracks: Monitor, Solo, Level, Pan
+                match self.selected_column {
+                    Column::Arm => {} // Should never be on Arm in playback
+                    Column::Monitor => self.selected_column = Column::Solo,
+                    Column::Solo => self.selected_column = Column::Level,
+                    Column::Level => self.selected_column = Column::Pan,
+                    Column::Pan => {} // Already at rightmost
+                }
+            } else {
+                // Input tracks: Arm, Monitor, Solo, Level, Pan
+                let columns = Column::all();
+                if let Some(idx) = columns.iter().position(|c| c == &self.selected_column) {
+                    if idx < columns.len() - 1 {
+                        self.selected_column = columns[idx + 1];
+                    }
                 }
             }
         }
