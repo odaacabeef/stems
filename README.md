@@ -73,6 +73,10 @@ playback:                          # Optional: audio file playback
 - `--list-devices` - Show all available audio and MIDI devices
 - `--config <path>` - Specify configuration file (default: `stems.yaml`)
 
+### Environment Variables
+
+- `STEMS_AUDIO_DEVICE` - Override the `devices.audio` config value. Useful for switching devices without editing the config file.
+
 ### Device Configuration
 
 - **audio** - Device name or index for both input and output (ensures single clock domain)

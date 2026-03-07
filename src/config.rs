@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::path::Path;
 
@@ -69,11 +70,19 @@ impl Config {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
-        let config: Config = serde_yaml::from_str(&content)
+        let mut config: Config = serde_yaml::from_str(&content)
             .with_context(|| format!("Failed to parse YAML in: {}", path.display()))?;
 
+        config.apply_env_overrides();
         config.validate()?;
         Ok(config)
+    }
+
+    /// Apply environment variable overrides to configuration
+    fn apply_env_overrides(&mut self) {
+        if let Ok(val) = env::var("STEMS_AUDIO_DEVICE") {
+            self.devices.audio = Some(val);
+        }
     }
 
     /// Validate configuration values
