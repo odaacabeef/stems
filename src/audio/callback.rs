@@ -146,8 +146,17 @@ pub fn process_audio_input(
                     continue;
                 }
 
-                // Calculate position for this specific frame in the buffer
-                let current_position = (base_position + frame_idx) % num_frames_total;
+                // Calculate position for this specific frame in the buffer.
+                // Looping tracks wrap; non-looping tracks fall silent once past the end.
+                let raw_position = base_position + frame_idx;
+                let current_position = if playback_track.is_looping() {
+                    raw_position % num_frames_total
+                } else {
+                    if raw_position >= num_frames_total {
+                        continue;
+                    }
+                    raw_position
+                };
 
                 // Read sample(s) from playback buffer
                 let (left_sample, right_sample) = if playback_track.channels == 1 {
@@ -188,33 +197,42 @@ pub fn process_audio_input(
             }
         }
 
-        // Send playback audio to separate playback stream
+        // Send playback audio to dedicated CoreAudio playback stream.
+        // This is the sole path by which playback reaches the monitor channels —
+        // mixing playback into the cpal monitor stream too would produce two
+        // slightly time-offset copies, which comb-filter into a metallic sound.
         let _ = playback_producer.push(playback_left);
         let _ = playback_producer.push(playback_right);
 
-        // Combine input tracks and playback for monitor output
-        let mixed_left = monitor_left + playback_left;
-        let mixed_right = monitor_right + playback_right;
+        // Send input-only monitor (stereo). Playback reaches the same channels
+        // via the dedicated CoreAudio playback stream above.
+        let _ = monitor_producer.push(monitor_left);
+        let _ = monitor_producer.push(monitor_right);
 
-        // Send combined output to monitor (stereo)
-        let _ = monitor_producer.push(mixed_left);
-        let _ = monitor_producer.push(mixed_right);
-
-        // If recording and mix recording is armed, send to mix recording buffer
+        // If recording and mix recording is armed, send the full mix
+        // (input + playback) to the mix recording buffer.
         if is_recording && mix_recording_armed.load(Ordering::Relaxed) {
+            let mixed_left = monitor_left + playback_left;
+            let mixed_right = monitor_right + playback_right;
             let _ = mix_recording_producer.push(mixed_left);
             let _ = mix_recording_producer.push(mixed_right);
         }
     }
 
-    // Increment playback positions after processing all frames (with looping)
+    // Increment playback positions after processing all frames.
+    // Looping tracks wrap; non-looping tracks clamp at the end of the file
+    // (further reads will fall silent until the next start, which resets position to 0).
     if is_playing {
         for playback_track in playback_tracks {
             let position = playback_track.get_position();
             let num_frames_total = playback_track.num_frames();
 
             if num_frames_total > 0 {
-                let new_position = (position + num_frames) % num_frames_total;
+                let new_position = if playback_track.is_looping() {
+                    (position + num_frames) % num_frames_total
+                } else {
+                    (position + num_frames).min(num_frames_total)
+                };
                 playback_track.set_position(new_position);
             }
         }

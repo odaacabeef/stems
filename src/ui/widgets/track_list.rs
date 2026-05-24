@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Table},
     Frame,
 };
@@ -153,7 +153,8 @@ pub fn render_track_list(
     frame.render_widget(table, area);
 }
 
-/// Create a simple text-based meter
+/// Create a simple text-based meter.
+/// Shading family: `░` = no sound, `▓` = sound, `█` = peak.
 fn create_meter_string(level: f32, width: usize) -> String {
     let level = level.clamp(0.0, 1.0);
     let filled = (level * width as f32) as usize;
@@ -164,21 +165,34 @@ fn create_meter_string(level: f32, width: usize) -> String {
         let rel_pos = i as f32 / width as f32;
 
         if i < filled {
-            // Filled portion
             if rel_pos > 0.9 {
-                meter.push('█'); // Peak (red zone)
-            } else if rel_pos > 0.7 {
-                meter.push('▓'); // Warning (yellow zone)
+                meter.push('█');
             } else {
-                meter.push('▓'); // Normal (green zone)
+                meter.push('▓');
             }
         } else {
-            // Empty portion
             meter.push('░');
         }
     }
 
     meter
+}
+
+/// Build the meter via `create_meter_string` and overlay a `▒` playhead at
+/// `progress` (0.0-1.0).
+fn create_playback_meter_line(level: f32, progress: f32, width: usize) -> Line<'static> {
+    let progress = progress.clamp(0.0, 1.0);
+    let playhead_idx = ((progress * width as f32) as usize).min(width.saturating_sub(1));
+
+    let chars: Vec<char> = create_meter_string(level, width).chars().collect();
+    let pre: String = chars[..playhead_idx].iter().collect();
+    let post: String = chars[playhead_idx + 1..].iter().collect();
+
+    Line::from(vec![
+        Span::raw(pre),
+        Span::raw("▒"),
+        Span::raw(post),
+    ])
 }
 
 /// Render the mix recording row below the track list
@@ -274,9 +288,16 @@ pub fn render_playback_list(
                 " C ".to_string()
             };
 
-            // Peak level for meter
+            // Peak level for meter, with overlaid playhead marker
             let peak = track.get_peak_level();
-            let meter_str = create_meter_string(peak, 20);
+            let num_frames = track.num_frames();
+            let position = track.get_position();
+            let progress = if num_frames > 0 {
+                (position as f32 / num_frames as f32).min(1.0)
+            } else {
+                0.0
+            };
+            let meter_line = create_playback_meter_line(peak, progress, 20);
 
             // Helper to create cell style for selected cells
             let cell_style = |column: Column| {
@@ -322,7 +343,7 @@ pub fn render_playback_list(
                 ),
                 Cell::from(level_str).style(cell_style(Column::Level)),
                 Cell::from(pan_str).style(cell_style(Column::Pan)),
-                Cell::from(meter_str),
+                Cell::from(meter_line),
             ])
         })
         .collect();

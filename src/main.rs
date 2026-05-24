@@ -196,6 +196,9 @@ fn load_playback_tracks(config: &Config, sample_rate: u32) -> Result<Vec<audio::
         if let Some(pan) = playback_config.pan {
             track.set_pan(pan);
         }
+        if let Some(looping) = playback_config.looping {
+            track.set_looping(looping);
+        }
 
         playback_tracks.push(track);
     }

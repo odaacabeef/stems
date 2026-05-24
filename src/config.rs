@@ -61,6 +61,9 @@ pub struct AudioFileConfig {
 
     #[serde(default)]
     pub pan: Option<f32>,
+
+    #[serde(rename = "loop", default)]
+    pub looping: Option<bool>,
 }
 
 impl Config {
