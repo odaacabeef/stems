@@ -60,7 +60,7 @@ inputs:
 # Playback track configuration (optional)
 # Files are pre-loaded into memory at startup
 # Must be 48kHz WAV files (mono or stereo)
-# Files loop continuously during playback
+# Files play once per MIDI start by default; set `loop: true` to loop
 # Uncomment the section below to enable audio playback:
 #
 # playback:
@@ -70,6 +70,7 @@ inputs:
 #     solo: false                 # Solo this file (default: false)
 #     level: 0.8                  # Volume 0.0-1.0 (default: 1.0)
 #     pan: 0.0                    # Pan -1.0 to 1.0 (default: 0.0)
+#     loop: false                 # Loop continuously (default: false)
 
 # Notes:
 # - Playback starts/stops with MIDI transport (synchronized with recording)

@@ -63,6 +63,7 @@ playback:                          # Optional: audio file playback
     solo: false                    # Solo this playback track
     level: 0.8                     # Playback volume (0.0 - 1.0)
     pan: 0.0                       # Pan position (-1.0 to 1.0)
+    loop: true                     # Loop the file (default: false)
   - file: click.wav
     monitor: true
     level: 0.5
@@ -114,10 +115,11 @@ Configure WAV files to play back during recording:
 - **solo** - Whether to solo this file (boolean, default: false)
 - **level** - Playback volume, 0.0 to 1.0 (float, default: 1.0)
 - **pan** - Pan position, -1.0 (left) to 1.0 (right) (float, default: 0.0)
+- **loop** - Loop the file continuously (boolean, default: false). If false, the file plays once and then sits silent until the next MIDI start.
 
 Playback tracks:
 - Start/stop with MIDI transport (synchronized with recording)
-- Loop continuously when they reach the end
+- Loop only when `loop: true` is set; otherwise play once per MIDI start
 - Are mixed into monitor output and included in mix recording
 - Can be controlled individually (monitor, solo, level, pan)
 - Are numbered starting from 1 in the UI

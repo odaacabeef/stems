@@ -34,6 +34,9 @@ pub struct PlaybackTrack {
 
     /// Current peak level for metering (0.0 - 1.0)
     pub peak_level: AtomicF32,
+
+    /// Whether playback loops back to the start when reaching the end
+    pub looping: AtomicBool,
 }
 
 impl PlaybackTrack {
@@ -105,6 +108,7 @@ impl PlaybackTrack {
             level: AtomicF32::new(1.0),
             pan: AtomicF32::new(0.0),
             peak_level: AtomicF32::new(0.0),
+            looping: AtomicBool::new(false),
         })
     }
 
@@ -170,6 +174,16 @@ impl PlaybackTrack {
         self.pan.store(clamped, Ordering::Relaxed);
     }
 
+    /// Get looping flag (audio-thread safe)
+    pub fn is_looping(&self) -> bool {
+        self.looping.load(Ordering::Relaxed)
+    }
+
+    /// Set looping flag
+    pub fn set_looping(&self, looping: bool) {
+        self.looping.store(looping, Ordering::Relaxed);
+    }
+
     /// Get peak level for metering (audio-thread safe)
     pub fn get_peak_level(&self) -> f32 {
         self.peak_level.load(Ordering::Relaxed)
@@ -218,6 +232,7 @@ mod tests {
             level: AtomicF32::new(1.0),
             pan: AtomicF32::new(0.0),
             peak_level: AtomicF32::new(0.0),
+            looping: AtomicBool::new(false),
         };
 
         assert_eq!(track.num_frames(), 480);
@@ -235,6 +250,7 @@ mod tests {
             level: AtomicF32::new(1.0),
             pan: AtomicF32::new(0.0),
             peak_level: AtomicF32::new(0.0),
+            looping: AtomicBool::new(false),
         };
 
         track.set_level(1.5);
@@ -255,6 +271,7 @@ mod tests {
             level: AtomicF32::new(1.0),
             pan: AtomicF32::new(0.0),
             peak_level: AtomicF32::new(0.0),
+            looping: AtomicBool::new(false),
         };
 
         track.set_pan(2.0);
@@ -275,6 +292,7 @@ mod tests {
             level: AtomicF32::new(1.0),
             pan: AtomicF32::new(0.0),
             peak_level: AtomicF32::new(0.0),
+            looping: AtomicBool::new(false),
         };
 
         // Center pan
