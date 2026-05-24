@@ -197,20 +197,23 @@ pub fn process_audio_input(
             }
         }
 
-        // Send playback audio to separate playback stream
+        // Send playback audio to dedicated CoreAudio playback stream.
+        // This is the sole path by which playback reaches the monitor channels —
+        // mixing playback into the cpal monitor stream too would produce two
+        // slightly time-offset copies, which comb-filter into a metallic sound.
         let _ = playback_producer.push(playback_left);
         let _ = playback_producer.push(playback_right);
 
-        // Combine input tracks and playback for monitor output
-        let mixed_left = monitor_left + playback_left;
-        let mixed_right = monitor_right + playback_right;
+        // Send input-only monitor (stereo). Playback reaches the same channels
+        // via the dedicated CoreAudio playback stream above.
+        let _ = monitor_producer.push(monitor_left);
+        let _ = monitor_producer.push(monitor_right);
 
-        // Send combined output to monitor (stereo)
-        let _ = monitor_producer.push(mixed_left);
-        let _ = monitor_producer.push(mixed_right);
-
-        // If recording and mix recording is armed, send to mix recording buffer
+        // If recording and mix recording is armed, send the full mix
+        // (input + playback) to the mix recording buffer.
         if is_recording && mix_recording_armed.load(Ordering::Relaxed) {
+            let mixed_left = monitor_left + playback_left;
+            let mixed_right = monitor_right + playback_right;
             let _ = mix_recording_producer.push(mixed_left);
             let _ = mix_recording_producer.push(mixed_right);
         }
