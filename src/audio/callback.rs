@@ -214,8 +214,14 @@ pub fn process_audio_input(
         if is_recording && mix_recording_armed.load(Ordering::Relaxed) {
             let mixed_left = monitor_left + playback_left;
             let mixed_right = monitor_right + playback_right;
-            let _ = mix_recording_producer.push(mixed_left);
-            let _ = mix_recording_producer.push(mixed_right);
+            // Push the stereo pair atomically: only if both samples fit.
+            // Pushing them independently lets a full buffer drop just one,
+            // which splits a frame — misaligning L/R and leaving the mix WAV
+            // with an odd sample count (an invalid data-chunk length).
+            if mix_recording_producer.slots() >= 2 {
+                let _ = mix_recording_producer.push(mixed_left);
+                let _ = mix_recording_producer.push(mixed_right);
+            }
         }
     }
 
